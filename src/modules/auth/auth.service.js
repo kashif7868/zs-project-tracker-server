@@ -102,12 +102,6 @@ export const registerService = async (userData) => {
         isVerified: false,
     });
 
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
-
-    user.refreshToken = refreshToken;
-    await user.save();
-
     let emailVerification = {
         sent: false,
     };
@@ -132,10 +126,8 @@ export const registerService = async (userData) => {
     return {
         success: true,
         message: emailVerification.sent
-            ? "User registered successfully. Verification email sent."
+            ? "User registered successfully. Please verify your email before login."
             : "User registered successfully, but verification email could not be sent.",
-        accessToken,
-        refreshToken,
         emailVerification,
         user: getSafeUserData(user),
     };
@@ -171,18 +163,11 @@ export const loginService = async ({ email, password }) => {
         throw error;
     }
 
-    /*
-      Simple template note:
-      Login is not blocked by isVerified yet.
-      Later, if any project needs strict email verification before login,
-      add this check:
-
-      if (!user.isVerified) {
-          const error = new Error("Please verify your email before login");
-          error.statusCode = 403;
-          throw error;
-      }
-    */
+    if (!user.isVerified) {
+        const error = new Error("Please verify your email before login");
+        error.statusCode = 403;
+        throw error;
+    }
 
     const isPasswordMatched = await bcrypt.compare(
         password,
@@ -263,6 +248,12 @@ export const refreshTokenService = async (refreshToken) => {
 
     if (user.status !== "active") {
         const error = new Error("User account is not active");
+        error.statusCode = 403;
+        throw error;
+    }
+
+    if (!user.isVerified) {
+        const error = new Error("Please verify your email before refreshing token");
         error.statusCode = 403;
         throw error;
     }

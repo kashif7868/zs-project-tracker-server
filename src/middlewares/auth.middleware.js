@@ -41,13 +41,34 @@ const authMiddleware = async (req, res, next) => {
     }
 
     const user = await User.findById(decoded.userId).select(
-      "-password -refreshToken -twoFASecret -__v"
+      "-password -refreshToken -passwordResetToken -emailVerificationToken -twoFASecret -__v"
     );
 
     if (!user) {
       return res.status(401).json({
         success: false,
         message: "User not found",
+      });
+    }
+
+    if (user.status === "blocked") {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been blocked",
+      });
+    }
+
+    if (user.status === "inactive") {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is inactive",
+      });
+    }
+
+    if (!user.isVerified) {
+      return res.status(403).json({
+        success: false,
+        message: "Please verify your email before accessing this resource",
       });
     }
 
