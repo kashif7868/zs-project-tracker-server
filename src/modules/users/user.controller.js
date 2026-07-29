@@ -14,18 +14,14 @@ const isAdminUser = (user) => {
   return user.role === "admin" || user.role === "super_admin";
 };
 
+
+// Get All Users - Admin Only
 export const getAllUsersController = async (req, res) => {
   try {
-    if (!isAdminUser(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied",
-      });
-    }
-
     const response = await getAllUsersService();
 
     return res.status(200).json(response);
+
   } catch (error) {
     return res.status(error.statusCode || 500).json({
       success: false,
@@ -34,6 +30,8 @@ export const getAllUsersController = async (req, res) => {
   }
 };
 
+
+// Get User By ID - Own Account or Admin
 export const getUserByIdController = async (req, res) => {
   try {
     const { id } = req.params;
@@ -49,8 +47,9 @@ export const getUserByIdController = async (req, res) => {
 
     const loggedInUserId = req.user._id.toString();
     const isOwnAccount = loggedInUserId === id;
+    const isAdmin = isAdminUser(req.user);
 
-    if (!isOwnAccount && !isAdminUser(req.user)) {
+    if (!isOwnAccount && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: "Access denied",
@@ -60,6 +59,7 @@ export const getUserByIdController = async (req, res) => {
     const response = await getUserByIdService(id);
 
     return res.status(200).json(response);
+
   } catch (error) {
     return res.status(error.statusCode || 500).json({
       success: false,
@@ -68,6 +68,8 @@ export const getUserByIdController = async (req, res) => {
   }
 };
 
+
+// Update User - Own Account or Admin
 export const updateUserController = async (req, res) => {
   try {
     const { id } = req.params;
@@ -103,16 +105,22 @@ export const updateUserController = async (req, res) => {
 
     const updateData = { ...req.body };
 
+    /*
+      Normal user apni sensitive fields update nahi kar sakta.
+      Admin/super_admin kar sakte hain.
+    */
     if (!isAdmin) {
       delete updateData.email;
       delete updateData.role;
       delete updateData.isVerified;
       delete updateData.is2FAEnabled;
+      delete updateData.status;
     }
 
     const response = await updateUserService(id, updateData);
 
     return res.status(200).json(response);
+
   } catch (error) {
     return res.status(error.statusCode || 500).json({
       success: false,
@@ -121,6 +129,8 @@ export const updateUserController = async (req, res) => {
   }
 };
 
+
+// Delete User - Admin Only
 export const deleteUserController = async (req, res) => {
   try {
     const { id } = req.params;
@@ -134,13 +144,6 @@ export const deleteUserController = async (req, res) => {
       });
     }
 
-    if (!isAdminUser(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied",
-      });
-    }
-
     if (req.user._id.toString() === id) {
       return res.status(400).json({
         success: false,
@@ -151,6 +154,7 @@ export const deleteUserController = async (req, res) => {
     const response = await deleteUserService(id);
 
     return res.status(200).json(response);
+
   } catch (error) {
     return res.status(error.statusCode || 500).json({
       success: false,

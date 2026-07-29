@@ -21,9 +21,13 @@ export const validateUpdateUserInput = (data) => {
   const allowedFields = [
     "name",
     "email",
+    "phone",
+    "countryCode",
     "avatar",
     "role",
+    "status",
     "isVerified",
+    "isPhoneVerified",
     "is2FAEnabled",
   ];
 
@@ -41,8 +45,16 @@ export const validateUpdateUserInput = (data) => {
     return "Name must be at least 2 characters";
   }
 
-  if (data.email && !validator.isEmail(data.email)) {
+  if (data.email && !validator.isEmail(data.email.trim())) {
     return "Invalid email";
+  }
+
+  if (data.phone && !validator.isMobilePhone(data.phone.trim(), "any")) {
+    return "Invalid phone number";
+  }
+
+  if (data.countryCode && !/^\+\d{1,4}$/.test(data.countryCode.trim())) {
+    return "Invalid country code";
   }
 
   if (
@@ -53,10 +65,24 @@ export const validateUpdateUserInput = (data) => {
   }
 
   if (
+    data.status &&
+    !["active", "inactive", "blocked"].includes(data.status)
+  ) {
+    return "Invalid status";
+  }
+
+  if (
     data.isVerified !== undefined &&
     typeof data.isVerified !== "boolean"
   ) {
     return "isVerified must be true or false";
+  }
+
+  if (
+    data.isPhoneVerified !== undefined &&
+    typeof data.isPhoneVerified !== "boolean"
+  ) {
+    return "isPhoneVerified must be true or false";
   }
 
   if (
