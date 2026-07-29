@@ -3,7 +3,13 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
+
 import routes from "./routes/index.js";
+
+import {
+  notFoundMiddleware,
+  globalErrorMiddleware,
+} from "./middlewares/error.middleware.js";
 
 const app = express();
 
@@ -35,5 +41,11 @@ app.get("/", (req, res) => {
 
 // API Routes
 app.use("/api/v1", routes);
+
+// 404 Middleware
+app.use(notFoundMiddleware);
+
+// Global Error Middleware
+app.use(globalErrorMiddleware);
 
 export default app;
