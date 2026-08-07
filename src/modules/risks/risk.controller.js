@@ -32,11 +32,9 @@ const sendSuccessResponse = (
    DIRECTORY PATHS
 
    Current file:
-
    backend/src/modules/risks/risk.controller.js
 
    Public folder:
-
    backend/public
    ========================================================= */
 
@@ -46,16 +44,18 @@ const currentFilePath =
 const currentDirectory =
   path.dirname(currentFilePath);
 
-const publicDirectory = path.resolve(
-  currentDirectory,
-  "../../../public"
-);
+const publicDirectory =
+  path.resolve(
+    currentDirectory,
+    "../../../public"
+  );
 
-const riskUploadsDirectory = path.resolve(
-  publicDirectory,
-  "uploads",
-  "risks"
-);
+const riskUploadsDirectory =
+  path.resolve(
+    publicDirectory,
+    "uploads",
+    "risks"
+  );
 
 /* =========================================================
    IMAGE PATH NORMALIZER
@@ -73,8 +73,7 @@ const normalizeImagePaths = (
       imagePaths
         .filter(
           (imagePath) =>
-            typeof imagePath ===
-              "string" &&
+            typeof imagePath === "string" &&
             imagePath.trim()
         )
         .map((imagePath) =>
@@ -87,10 +86,11 @@ const normalizeImagePaths = (
 /* =========================================================
    DELETE ONE RISK IMAGE
 
-   Security:
+   Only files located inside:
 
-   Sirf public/uploads/risks folder ke andar wali files
-   delete ho sakti hain.
+   public/uploads/risks
+
+   can be physically deleted.
    ========================================================= */
 
 const deleteRiskImage = async (
@@ -107,7 +107,7 @@ const deleteRiskImage = async (
     imagePath.trim();
 
   /*
-    External URLs ko physical disk se delete nahi karna.
+    External URLs are not physical local files.
   */
 
   if (
@@ -163,7 +163,7 @@ const deleteRiskImage = async (
     }
 
     console.error(
-      "Risk Evidence image deletion failed:",
+      "Risk evidence image deletion failed:",
       error
     );
 
@@ -184,8 +184,7 @@ const deleteRiskImages = async (
     );
 
   if (
-    normalizedImagePaths.length ===
-    0
+    normalizedImagePaths.length === 0
   ) {
     return {
       requested: 0,
@@ -215,7 +214,8 @@ const deleteRiskImages = async (
     requested:
       normalizedImagePaths.length,
 
-    deleted: deletedCount,
+    deleted:
+      deletedCount,
   };
 };
 
@@ -223,6 +223,15 @@ const deleteRiskImages = async (
    CREATE RISK
 
    POST /api/v1/risks
+
+   Validation provides:
+
+   projectId
+   description
+   riskRegisterId (optional)
+   remarksEffect (optional)
+
+   serialNo is generated automatically by the model.
    ========================================================= */
 
 export const createRisk = async (
@@ -232,19 +241,9 @@ export const createRisk = async (
 ) => {
   try {
     const result =
-      await createRiskService({
-        projectId:
-          req.body.projectId,
-
-        serialNo:
-          req.body.serialNo,
-
-        riskRegisterId:
-          req.body.riskRegisterId,
-
-        description:
-          req.body.description,
-      });
+      await createRiskService(
+        req.body
+      );
 
     return sendSuccessResponse(
       res,
@@ -302,7 +301,7 @@ export const getRisks = async (
 };
 
 /* =========================================================
-   GET PROJECT RISKS
+   GET RISKS FOR ONE PROJECT
 
    GET /api/v1/risks/project/:projectId
    ========================================================= */
@@ -378,6 +377,19 @@ export const getRiskById = async (
    UPDATE RISK
 
    PATCH /api/v1/risks/:riskId
+
+   Allowed fields after validation:
+
+   description
+   riskRegisterId
+   remarksEffect
+
+   Protected fields:
+
+   projectId
+   projectCode
+   serialNo
+   status
    ========================================================= */
 
 export const updateRisk = async (
@@ -389,19 +401,7 @@ export const updateRisk = async (
     const result =
       await updateRiskService(
         req.params.riskId,
-        {
-          projectId:
-            req.body.projectId,
-
-          serialNo:
-            req.body.serialNo,
-
-          riskRegisterId:
-            req.body.riskRegisterId,
-
-          description:
-            req.body.description,
-        }
+        req.body
       );
 
     return sendSuccessResponse(
@@ -456,27 +456,35 @@ export const updateRiskStatus = async (
    MARK RISK COMPLETE
 
    PATCH /api/v1/risks/:riskId/complete
+
+   Completion requires:
+
+   At least one Before image
+   At least one After image
    ========================================================= */
 
-export const markRiskComplete =
-  async (req, res, next) => {
-    try {
-      const result =
-        await updateRiskStatusService(
-          req.params.riskId,
-          "complete"
-        );
-
-      return sendSuccessResponse(
-        res,
-        200,
-        "Risk marked Complete successfully.",
-        result
+export const markRiskComplete = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const result =
+      await updateRiskStatusService(
+        req.params.riskId,
+        "complete"
       );
-    } catch (error) {
-      return next(error);
-    }
-  };
+
+    return sendSuccessResponse(
+      res,
+      200,
+      "Risk marked Complete successfully.",
+      result
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
 
 /* =========================================================
    MARK RISK IN PROGRESS
@@ -484,25 +492,28 @@ export const markRiskComplete =
    PATCH /api/v1/risks/:riskId/in-progress
    ========================================================= */
 
-export const markRiskInProgress =
-  async (req, res, next) => {
-    try {
-      const result =
-        await updateRiskStatusService(
-          req.params.riskId,
-          "in_progress"
-        );
-
-      return sendSuccessResponse(
-        res,
-        200,
-        "Risk moved to In Progress successfully.",
-        result
+export const markRiskInProgress = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const result =
+      await updateRiskStatusService(
+        req.params.riskId,
+        "in_progress"
       );
-    } catch (error) {
-      return next(error);
-    }
-  };
+
+    return sendSuccessResponse(
+      res,
+      200,
+      "Risk moved to In Progress successfully.",
+      result
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
 
 /* =========================================================
    DELETE RISK
@@ -511,10 +522,10 @@ export const markRiskInProgress =
 
    Deletes:
 
-   - Risk record
-   - Before Evidence records
-   - After Evidence records
-   - Related image files
+   Risk database record
+   Before evidence records
+   After evidence records
+   Related local image files
    ========================================================= */
 
 export const deleteRisk = async (
@@ -550,7 +561,8 @@ export const deleteRisk = async (
         : imagePaths.length;
 
     const deletedRiskId =
-      result?.risk?._id?.toString?.() ||
+      result?.risk?._id
+        ?.toString?.() ||
       req.params.riskId;
 
     return sendSuccessResponse(
@@ -558,9 +570,11 @@ export const deleteRisk = async (
       200,
       "Risk and its Before/After Evidence deleted successfully.",
       {
-        riskId: deletedRiskId,
+        riskId:
+          deletedRiskId,
 
-        risk: result?.risk,
+        risk:
+          result?.risk,
 
         deletedEvidenceCount,
 

@@ -24,6 +24,7 @@ const currentDirectory =
 
   backend/
 */
+
 const projectRoot = path.resolve(
   currentDirectory,
   "../.."
@@ -33,6 +34,10 @@ const publicDirectory = path.join(
   projectRoot,
   "public"
 );
+
+/* =========================================================
+   RISK EVIDENCE DIRECTORIES
+   ========================================================= */
 
 const riskUploadDirectory = path.join(
   publicDirectory,
@@ -51,22 +56,50 @@ const afterUploadDirectory = path.join(
 );
 
 /* =========================================================
-   UPLOAD LIMITS
-
-   Maximum:
-   - 10 images per request
-   - 10 MB per image
+   USER AVATAR DIRECTORIES
    ========================================================= */
+
+const userUploadDirectory = path.join(
+  publicDirectory,
+  "uploads",
+  "users"
+);
+
+const avatarUploadDirectory = path.join(
+  userUploadDirectory,
+  "avatars"
+);
+
+/* =========================================================
+   UPLOAD LIMITS
+   ========================================================= */
+
+/*
+  Evidence:
+
+  - Maximum 10 images per request
+  - Maximum 10 MB per image
+*/
 
 export const MAX_EVIDENCE_IMAGES = 10;
 
 export const MAX_EVIDENCE_IMAGE_SIZE =
   10 * 1024 * 1024;
 
+/*
+  User avatar:
+
+  - Maximum 1 image per request
+  - Maximum 5 MB
+*/
+
+export const MAX_AVATAR_IMAGES = 1;
+
+export const MAX_AVATAR_IMAGE_SIZE =
+  5 * 1024 * 1024;
+
 /* =========================================================
    ALLOWED IMAGE TYPES
-
-   Sirf:
 
    JPG
    JPEG
@@ -81,11 +114,12 @@ const IMAGE_MIME_EXTENSION_MAP = {
   "image/webp": ".webp",
 };
 
-const ALLOWED_IMAGE_MIME_TYPES = new Set(
-  Object.keys(
-    IMAGE_MIME_EXTENSION_MAP
-  )
-);
+const ALLOWED_IMAGE_MIME_TYPES =
+  new Set(
+    Object.keys(
+      IMAGE_MIME_EXTENSION_MAP
+    )
+  );
 
 /* =========================================================
    CREATE UPLOAD DIRECTORIES
@@ -94,27 +128,43 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set(
 
    public/
    └── uploads/
-       └── risks/
-           ├── before/
-           └── after/
+       ├── risks/
+       │   ├── before/
+       │   └── after/
+       └── users/
+           └── avatars/
    ========================================================= */
 
-const createUploadDirectories = () => {
-  const directories = [
-    publicDirectory,
-    riskUploadDirectory,
-    beforeUploadDirectory,
-    afterUploadDirectory,
-  ];
+const createUploadDirectories =
+  () => {
+    const directories = [
+      publicDirectory,
 
-  directories.forEach((directory) => {
-    if (!fs.existsSync(directory)) {
-      fs.mkdirSync(directory, {
-        recursive: true,
-      });
-    }
-  });
-};
+      riskUploadDirectory,
+      beforeUploadDirectory,
+      afterUploadDirectory,
+
+      userUploadDirectory,
+      avatarUploadDirectory,
+    ];
+
+    directories.forEach(
+      (directory) => {
+        if (
+          !fs.existsSync(
+            directory
+          )
+        ) {
+          fs.mkdirSync(
+            directory,
+            {
+              recursive: true,
+            }
+          );
+        }
+      }
+    );
+  };
 
 createUploadDirectories();
 
@@ -122,7 +172,7 @@ createUploadDirectories();
    IMAGE FILE FILTER
    ========================================================= */
 
-const evidenceImageFilter = (
+const imageFileFilter = (
   _req,
   file,
   callback
@@ -139,23 +189,64 @@ const evidenceImageFilter = (
     error.statusCode = 400;
     error.status = 400;
 
-    return callback(error, false);
+    return callback(
+      error,
+      false
+    );
   }
 
-  return callback(null, true);
+  return callback(
+    null,
+    true
+  );
 };
 
 /* =========================================================
-   SAFE IMAGE FILE NAME
+   SAFE VALUE
+   ========================================================= */
+
+const createSafeFileValue = (
+  value,
+  fallback
+) => {
+  if (
+    typeof value !== "string"
+  ) {
+    return fallback;
+  }
+
+  const safeValue =
+    value.replace(
+      /[^a-zA-Z0-9_-]/g,
+      ""
+    );
+
+  return (
+    safeValue ||
+    fallback
+  );
+};
+
+/* =========================================================
+   UNIQUE FILE ID
+   ========================================================= */
+
+const createUniqueId = () => {
+  return crypto
+    .randomUUID()
+    .replaceAll("-", "");
+};
+
+/* =========================================================
+   EVIDENCE IMAGE FILE NAME
 
    Examples:
 
    before-RISK_ID-1720000000000-UUID.jpg
-
-   after-RISK_ID-1720000000000-UUID.png
+   after-RISK_ID-1720000000000-UUID.webp
    ========================================================= */
 
-const createImageFileName = (
+const createEvidenceFileName = (
   req,
   file,
   evidenceType
@@ -166,28 +257,64 @@ const createImageFileName = (
     ];
 
   const riskId =
-    typeof req.params?.riskId ===
-    "string"
-      ? req.params.riskId.replace(
-          /[^a-zA-Z0-9_-]/g,
-          ""
-        )
-      : "risk";
+    createSafeFileValue(
+      req.params?.riskId,
+      "risk"
+    );
 
-  const uniqueId = crypto
-    .randomUUID()
-    .replaceAll("-", "");
-
-  return [
-    evidenceType,
-    riskId,
-    Date.now(),
-    uniqueId,
-  ].join("-") + extension;
+  return (
+    [
+      evidenceType,
+      riskId,
+      Date.now(),
+      createUniqueId(),
+    ].join("-") +
+    extension
+  );
 };
 
 /* =========================================================
-   STORAGE FACTORY
+   AVATAR IMAGE FILE NAME
+
+   Example:
+
+   avatar-USER_ID-1720000000000-UUID.webp
+   ========================================================= */
+
+const createAvatarFileName = (
+  req,
+  file
+) => {
+  const extension =
+    IMAGE_MIME_EXTENSION_MAP[
+      file.mimetype
+    ];
+
+  const userId =
+    createSafeFileValue(
+      String(
+        req.user?._id ||
+          req.user?.id ||
+          req.params?.id ||
+          req.params?.userId ||
+          "user"
+      ),
+      "user"
+    );
+
+  return (
+    [
+      "avatar",
+      userId,
+      Date.now(),
+      createUniqueId(),
+    ].join("-") +
+    extension
+  );
+};
+
+/* =========================================================
+   EVIDENCE STORAGE FACTORY
    ========================================================= */
 
 const createEvidenceStorage = (
@@ -204,7 +331,10 @@ const createEvidenceStorage = (
       _file,
       callback
     ) {
-      callback(null, destination);
+      callback(
+        null,
+        destination
+      );
     },
 
     filename(
@@ -213,59 +343,126 @@ const createEvidenceStorage = (
       callback
     ) {
       const filename =
-        createImageFileName(
+        createEvidenceFileName(
           req,
           file,
           evidenceType
         );
 
-      callback(null, filename);
+      callback(
+        null,
+        filename
+      );
     },
   });
 };
 
 /* =========================================================
-   BEFORE IMAGE UPLOADER
+   USER AVATAR STORAGE
    ========================================================= */
 
-const beforeEvidenceMulter = multer({
-  storage:
-    createEvidenceStorage("before"),
+const avatarStorage =
+  multer.diskStorage({
+    destination(
+      _req,
+      _file,
+      callback
+    ) {
+      callback(
+        null,
+        avatarUploadDirectory
+      );
+    },
 
-  fileFilter: evidenceImageFilter,
+    filename(
+      req,
+      file,
+      callback
+    ) {
+      const filename =
+        createAvatarFileName(
+          req,
+          file
+        );
 
-  limits: {
-    fileSize:
-      MAX_EVIDENCE_IMAGE_SIZE,
-
-    files:
-      MAX_EVIDENCE_IMAGES,
-  },
-});
+      callback(
+        null,
+        filename
+      );
+    },
+  });
 
 /* =========================================================
-   AFTER IMAGE UPLOADER
+   BEFORE EVIDENCE MULTER
    ========================================================= */
 
-const afterEvidenceMulter = multer({
-  storage:
-    createEvidenceStorage("after"),
+const beforeEvidenceMulter =
+  multer({
+    storage:
+      createEvidenceStorage(
+        "before"
+      ),
 
-  fileFilter: evidenceImageFilter,
+    fileFilter:
+      imageFileFilter,
 
-  limits: {
-    fileSize:
-      MAX_EVIDENCE_IMAGE_SIZE,
+    limits: {
+      fileSize:
+        MAX_EVIDENCE_IMAGE_SIZE,
 
-    files:
-      MAX_EVIDENCE_IMAGES,
-  },
-});
+      files:
+        MAX_EVIDENCE_IMAGES,
+    },
+  });
 
 /* =========================================================
-   UPLOAD MIDDLEWARE
+   AFTER EVIDENCE MULTER
+   ========================================================= */
 
-   multipart/form-data field name:
+const afterEvidenceMulter =
+  multer({
+    storage:
+      createEvidenceStorage(
+        "after"
+      ),
+
+    fileFilter:
+      imageFileFilter,
+
+    limits: {
+      fileSize:
+        MAX_EVIDENCE_IMAGE_SIZE,
+
+      files:
+        MAX_EVIDENCE_IMAGES,
+    },
+  });
+
+/* =========================================================
+   USER AVATAR MULTER
+   ========================================================= */
+
+const userAvatarMulter =
+  multer({
+    storage:
+      avatarStorage,
+
+    fileFilter:
+      imageFileFilter,
+
+    limits: {
+      fileSize:
+        MAX_AVATAR_IMAGE_SIZE,
+
+      files:
+        MAX_AVATAR_IMAGES,
+    },
+  });
+
+/* =========================================================
+   EVIDENCE UPLOAD MIDDLEWARE
+
+   multipart/form-data field:
 
    images
    ========================================================= */
@@ -283,21 +480,43 @@ export const uploadAfterEvidence =
   );
 
 /* =========================================================
+   AVATAR UPLOAD MIDDLEWARE
+
+   multipart/form-data field:
+
+   avatar
+   ========================================================= */
+
+export const uploadUserAvatar =
+  userAvatarMulter.single(
+    "avatar"
+  );
+
+/* =========================================================
    REQUEST FILE HELPER
    ========================================================= */
 
-const getRequestFiles = (req) => {
-  if (Array.isArray(req.files)) {
+const getRequestFiles = (
+  req
+) => {
+  if (
+    Array.isArray(
+      req.files
+    )
+  ) {
     return req.files;
   }
 
   if (req.file) {
-    return [req.file];
+    return [
+      req.file,
+    ];
   }
 
   if (
     req.files &&
-    typeof req.files === "object"
+    typeof req.files ===
+      "object"
   ) {
     return Object.values(
       req.files
@@ -310,60 +529,81 @@ const getRequestFiles = (req) => {
 /* =========================================================
    CLEAN FAILED UPLOADS
 
-   Multer upload fail ho to temporary uploaded images
-   delete hongi.
+   Multer upload fail hone par partially uploaded files
+   automatically delete hongi.
    ========================================================= */
 
 const cleanupFailedUpload =
-  async (req) => {
+  async (
+    req
+  ) => {
     const files =
       getRequestFiles(req);
 
     await Promise.allSettled(
-      files.map(async (file) => {
-        if (
-          !file ||
-          typeof file.path !==
-            "string"
-        ) {
-          return;
-        }
-
-        try {
-          await fs.promises.unlink(
-            file.path
-          );
-        } catch (error) {
+      files.map(
+        async (
+          file
+        ) => {
           if (
-            error?.code !== "ENOENT"
+            !file ||
+            typeof file.path !==
+              "string"
           ) {
-            console.error(
-              "Failed image cleanup:",
-              error
+            return;
+          }
+
+          try {
+            await fs.promises.unlink(
+              file.path
             );
+          } catch (error) {
+            if (
+              error?.code !==
+              "ENOENT"
+            ) {
+              console.error(
+                "Failed image cleanup:",
+                error
+              );
+            }
           }
         }
-      })
+      )
     );
   };
 
 /* =========================================================
-   MULTER ERROR HANDLER
+   GENERIC UPLOAD ERROR HANDLER
    ========================================================= */
 
-export const handleEvidenceUpload = (
-  uploadMiddleware
-) => {
-  return (req, res, next) => {
+const createUploadHandler = ({
+  uploadMiddleware,
+
+  fileSizeMessage,
+  fileCountMessage,
+
+  unexpectedFieldMessage,
+  fallbackMessage,
+}) => {
+  return (
+    req,
+    res,
+    next
+  ) => {
     uploadMiddleware(
       req,
       res,
-      async (error) => {
+      async (
+        error
+      ) => {
         if (!error) {
           return next();
         }
 
-        await cleanupFailedUpload(req);
+        await cleanupFailedUpload(
+          req
+        );
 
         if (
           error instanceof
@@ -378,33 +618,27 @@ export const handleEvidenceUpload = (
               .json({
                 success: false,
                 message:
-                  "Each evidence image must be 10 MB or smaller.",
+                  fileSizeMessage,
               });
           }
 
           if (
             error.code ===
-            "LIMIT_FILE_COUNT"
-          ) {
-            return res
-              .status(400)
-              .json({
-                success: false,
-                message:
-                  "Maximum 10 evidence images can be uploaded at one time.",
-              });
-          }
-
-          if (
+              "LIMIT_FILE_COUNT" ||
             error.code ===
-            "LIMIT_UNEXPECTED_FILE"
+              "LIMIT_UNEXPECTED_FILE"
           ) {
+            const message =
+              error.code ===
+              "LIMIT_FILE_COUNT"
+                ? fileCountMessage
+                : unexpectedFieldMessage;
+
             return res
               .status(400)
               .json({
                 success: false,
-                message:
-                  'Evidence images must be uploaded using the field name "images".',
+                message,
               });
           }
 
@@ -412,19 +646,22 @@ export const handleEvidenceUpload = (
             .status(400)
             .json({
               success: false,
+
               message:
                 error.message ||
-                "Evidence image upload failed.",
+                fallbackMessage,
             });
         }
 
         if (
-          error?.statusCode === 400
+          error?.statusCode ===
+          400
         ) {
           return res
             .status(400)
             .json({
               success: false,
+
               message:
                 error.message,
             });
@@ -437,15 +674,76 @@ export const handleEvidenceUpload = (
 };
 
 /* =========================================================
+   EVIDENCE UPLOAD ERROR HANDLER
+
+   Existing route usage remains valid:
+
+   handleEvidenceUpload(
+     uploadBeforeEvidence
+   )
+   ========================================================= */
+
+export const handleEvidenceUpload = (
+  uploadMiddleware
+) => {
+  return createUploadHandler({
+    uploadMiddleware,
+
+    fileSizeMessage:
+      "Each evidence image must be 10 MB or smaller.",
+
+    fileCountMessage:
+      "Maximum 10 evidence images can be uploaded at one time.",
+
+    unexpectedFieldMessage:
+      'Evidence images must be uploaded using the field name "images".',
+
+    fallbackMessage:
+      "Evidence image upload failed.",
+  });
+};
+
+/* =========================================================
+   USER AVATAR ERROR HANDLER
+
+   Route usage:
+
+   handleUserAvatarUpload(
+     uploadUserAvatar
+   )
+   ========================================================= */
+
+export const handleUserAvatarUpload = (
+  uploadMiddleware =
+    uploadUserAvatar
+) => {
+  return createUploadHandler({
+    uploadMiddleware,
+
+    fileSizeMessage:
+      "Profile picture must be 5 MB or smaller.",
+
+    fileCountMessage:
+      "Only one profile picture can be uploaded at a time.",
+
+    unexpectedFieldMessage:
+      'Profile picture must be uploaded using the field name "avatar".',
+
+    fallbackMessage:
+      "Profile picture upload failed.",
+  });
+};
+
+/* =========================================================
    GET PUBLIC IMAGE PATHS
 
    Physical path:
 
-   D:/backend/public/uploads/risks/before/image.jpg
+   D:/backend/public/uploads/users/avatars/avatar.jpg
 
    Database path:
 
-   /uploads/risks/before/image.jpg
+   /uploads/users/avatars/avatar.jpg
    ========================================================= */
 
 export const getUploadedImagePaths = (
@@ -457,70 +755,116 @@ export const getUploadedImagePaths = (
   return [
     ...new Set(
       files
-        .map((file) => {
-          if (
-            !file ||
-            typeof file.path !==
-              "string"
-          ) {
-            return "";
+        .map(
+          (
+            file
+          ) => {
+            if (
+              !file ||
+              typeof file.path !==
+                "string"
+            ) {
+              return "";
+            }
+
+            const absoluteFilePath =
+              path.resolve(
+                file.path
+              );
+
+            const relativeFilePath =
+              path.relative(
+                publicDirectory,
+                absoluteFilePath
+              );
+
+            const isOutsidePublic =
+              relativeFilePath.startsWith(
+                ".."
+              ) ||
+              path.isAbsolute(
+                relativeFilePath
+              );
+
+            if (
+              isOutsidePublic
+            ) {
+              return "";
+            }
+
+            return `/${relativeFilePath.replaceAll(
+              "\\",
+              "/"
+            )}`;
           }
-
-          const absoluteFilePath =
-            path.resolve(file.path);
-
-          const relativeFilePath =
-            path.relative(
-              publicDirectory,
-              absoluteFilePath
-            );
-
-          const isOutsidePublic =
-            relativeFilePath.startsWith(
-              ".."
-            ) ||
-            path.isAbsolute(
-              relativeFilePath
-            );
-
-          if (isOutsidePublic) {
-            return "";
-          }
-
-          return `/${relativeFilePath.replaceAll(
-            "\\",
-            "/"
-          )}`;
-        })
+        )
         .filter(Boolean)
     ),
   ];
 };
 
 /* =========================================================
-   DELETE ONE UPLOADED IMAGE
+   GET SINGLE AVATAR PATH
    ========================================================= */
 
-export const deleteUploadedImage =
-  async (imagePath) => {
+export const getUploadedAvatarPath = (
+  req
+) => {
+  const imagePaths =
+    getUploadedImagePaths(
+      req
+    );
+
+  return (
+    imagePaths[0] ||
+    ""
+  );
+};
+
+/* =========================================================
+   DELETE FILE INSIDE ALLOWED DIRECTORY
+   ========================================================= */
+
+const deleteFileInsideDirectory =
+  async (
+    imagePath,
+    allowedDirectory,
+    errorLabel
+  ) => {
     if (
-      typeof imagePath !== "string" ||
+      typeof imagePath !==
+        "string" ||
       !imagePath.trim()
     ) {
       return false;
     }
 
+    /*
+      External URL backend se delete nahi hogi.
+    */
+
     if (
-      imagePath.startsWith("http://") ||
-      imagePath.startsWith("https://")
+      imagePath.startsWith(
+        "http://"
+      ) ||
+      imagePath.startsWith(
+        "https://"
+      )
     ) {
       return false;
     }
 
-    const cleanImagePath = imagePath
-      .trim()
-      .replaceAll("\\", "/")
-      .replace(/^\/+/, "");
+    const cleanImagePath =
+      imagePath
+        .trim()
+        .replaceAll(
+          "\\",
+          "/"
+        )
+        .replace(
+          /^\/+/,
+          ""
+        );
 
     const absoluteImagePath =
       path.resolve(
@@ -528,21 +872,23 @@ export const deleteUploadedImage =
         cleanImagePath
       );
 
-    const relativeRiskPath =
+    const relativePath =
       path.relative(
-        riskUploadDirectory,
+        allowedDirectory,
         absoluteImagePath
       );
 
-    const isOutsideRiskDirectory =
-      relativeRiskPath.startsWith(
+    const isOutsideDirectory =
+      relativePath.startsWith(
         ".."
       ) ||
       path.isAbsolute(
-        relativeRiskPath
+        relativePath
       );
 
-    if (isOutsideRiskDirectory) {
+    if (
+      isOutsideDirectory
+    ) {
       return false;
     }
 
@@ -553,12 +899,15 @@ export const deleteUploadedImage =
 
       return true;
     } catch (error) {
-      if (error?.code === "ENOENT") {
+      if (
+        error?.code ===
+        "ENOENT"
+      ) {
         return false;
       }
 
       console.error(
-        "Evidence image deletion failed:",
+        `${errorLabel} deletion failed:`,
         error
       );
 
@@ -567,12 +916,50 @@ export const deleteUploadedImage =
   };
 
 /* =========================================================
-   DELETE MULTIPLE UPLOADED IMAGES
+   DELETE ONE RISK EVIDENCE IMAGE
+
+   Existing Evidence services ke liye.
+   ========================================================= */
+
+export const deleteUploadedImage =
+  async (
+    imagePath
+  ) => {
+    return deleteFileInsideDirectory(
+      imagePath,
+      riskUploadDirectory,
+      "Evidence image"
+    );
+  };
+
+/* =========================================================
+   DELETE USER AVATAR
+   ========================================================= */
+
+export const deleteUploadedAvatar =
+  async (
+    avatarPath
+  ) => {
+    return deleteFileInsideDirectory(
+      avatarPath,
+      avatarUploadDirectory,
+      "User avatar"
+    );
+  };
+
+/* =========================================================
+   DELETE MULTIPLE EVIDENCE IMAGES
    ========================================================= */
 
 export const deleteUploadedImages =
-  async (imagePaths = []) => {
-    if (!Array.isArray(imagePaths)) {
+  async (
+    imagePaths = []
+  ) => {
+    if (
+      !Array.isArray(
+        imagePaths
+      )
+    ) {
       return {
         requested: 0,
         deleted: 0,
@@ -582,7 +969,9 @@ export const deleteUploadedImages =
     const uniqueImagePaths = [
       ...new Set(
         imagePaths.filter(
-          (imagePath) =>
+          (
+            imagePath
+          ) =>
             typeof imagePath ===
               "string" &&
             imagePath.trim()
@@ -593,19 +982,25 @@ export const deleteUploadedImages =
     const results =
       await Promise.allSettled(
         uniqueImagePaths.map(
-          (imagePath) =>
+          (
+            imagePath
+          ) =>
             deleteUploadedImage(
               imagePath
             )
         )
       );
 
-    const deleted = results.filter(
-      (result) =>
-        result.status ===
-          "fulfilled" &&
-        result.value === true
-    ).length;
+    const deleted =
+      results.filter(
+        (
+          result
+        ) =>
+          result.status ===
+            "fulfilled" &&
+          result.value ===
+            true
+      ).length;
 
     return {
       requested:
@@ -622,7 +1017,11 @@ export const deleteUploadedImages =
 export const imageUploadPaths = {
   projectRoot,
   publicDirectory,
+
   riskUploadDirectory,
   beforeUploadDirectory,
   afterUploadDirectory,
+
+  userUploadDirectory,
+  avatarUploadDirectory,
 };

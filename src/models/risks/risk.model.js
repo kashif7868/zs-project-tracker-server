@@ -3,6 +3,147 @@ import mongoose from "mongoose";
 const { Schema } = mongoose;
 
 /* =========================================================
+   RISK SERIAL COUNTER
+
+   Har project ka independent serial sequence maintain karta hai.
+
+   Example:
+
+   Project A → 1, 2, 3
+   Project B → 1, 2, 3
+   ========================================================= */
+
+const riskSerialCounterSchema =
+  new Schema(
+    {
+      projectId: {
+        type:
+          Schema.Types.ObjectId,
+
+        ref:
+          "Project",
+
+        required: true,
+
+        unique: true,
+
+        index: true,
+      },
+
+      sequence: {
+        type: Number,
+
+        required: true,
+
+        default: 0,
+
+        min: 0,
+      },
+    },
+    {
+      timestamps: true,
+
+      versionKey: false,
+
+      strict: true,
+    }
+  );
+
+const RiskSerialCounter =
+  mongoose.models
+    .RiskSerialCounter ||
+  mongoose.model(
+    "RiskSerialCounter",
+    riskSerialCounterSchema
+  );
+
+/* =========================================================
+   RESERVE SERIAL NUMBER RANGE
+
+   Single Risk:
+
+   reserveRiskSerialRange(projectId, 1)
+
+   Bulk Import:
+
+   reserveRiskSerialRange(projectId, 200)
+
+   Atomic operation hai, is liye concurrent requests duplicate
+   serial number generate nahi karengi.
+
+   Failed save/import ki surat mein sequence mein gap aa sakta hai.
+   ========================================================= */
+
+export const reserveRiskSerialRange =
+  async (
+    projectId,
+    count = 1
+  ) => {
+    if (
+      !mongoose.isValidObjectId(
+        projectId
+      )
+    ) {
+      throw new Error(
+        "A valid Project ID is required for serial number allocation."
+      );
+    }
+
+    const normalizedCount =
+      Number.parseInt(
+        String(count),
+        10
+      );
+
+    if (
+      !Number.isInteger(
+        normalizedCount
+      ) ||
+      normalizedCount < 1
+    ) {
+      throw new Error(
+        "Serial number allocation count must be a positive integer."
+      );
+    }
+
+    const counter =
+      await RiskSerialCounter
+        .findOneAndUpdate(
+          {
+            projectId,
+          },
+          {
+            $inc: {
+              sequence:
+                normalizedCount,
+            },
+          },
+          {
+            new: true,
+            upsert: true,
+            setDefaultsOnInsert:
+              true,
+          }
+        )
+        .lean();
+
+    const endSerial =
+      counter.sequence;
+
+    const startSerial =
+      endSerial -
+      normalizedCount +
+      1;
+
+    return {
+      startSerial,
+      endSerial,
+      count:
+        normalizedCount,
+    };
+  };
+
+/* =========================================================
    RISK SCHEMA
 
    Locked business fields:
@@ -14,181 +155,194 @@ const { Schema } = mongoose;
    description
    status
 
-   Before/After Evidence separate Evidence model mein hogi.
+   Before/After Evidence separate Evidence model mein rahegi.
    ========================================================= */
 
-const riskSchema = new Schema(
-  {
-    /* =====================================================
-       PROJECT REFERENCE
-       ===================================================== */
+const riskSchema =
+  new Schema(
+    {
+      /* =====================================================
+         PROJECT ID
+         ===================================================== */
 
-    projectId: {
-      type: Schema.Types.ObjectId,
+      projectId: {
+        type:
+          Schema.Types.ObjectId,
 
-      ref: "Project",
+        ref:
+          "Project",
 
-      required: [
-        true,
-        "Project ID is required.",
-      ],
-
-      index: true,
-    },
-
-    /* =====================================================
-       PROJECT CODE
-
-       Selected Project se automatically fetch hoga.
-       ===================================================== */
-
-    projectCode: {
-      type: String,
-
-      required: [
-        true,
-        "Project code is required.",
-      ],
-
-      trim: true,
-      uppercase: true,
-
-      minlength: [
-        1,
-        "Project code is required.",
-      ],
-
-      maxlength: [
-        100,
-        "Project code cannot exceed 100 characters.",
-      ],
-
-      index: true,
-    },
-
-    /* =====================================================
-       SERIAL NUMBER
-       ===================================================== */
-
-    serialNo: {
-      type: String,
-
-      required: [
-        true,
-        "Serial number is required.",
-      ],
-
-      trim: true,
-
-      minlength: [
-        1,
-        "Serial number is required.",
-      ],
-
-      maxlength: [
-        50,
-        "Serial number cannot exceed 50 characters.",
-      ],
-    },
-
-    /* =====================================================
-       RISK REGISTER ID
-       ===================================================== */
-
-    riskRegisterId: {
-      type: String,
-
-      required: [
-        true,
-        "Risk Register ID is required.",
-      ],
-
-      trim: true,
-      uppercase: true,
-
-      minlength: [
-        1,
-        "Risk Register ID is required.",
-      ],
-
-      maxlength: [
-        100,
-        "Risk Register ID cannot exceed 100 characters.",
-      ],
-
-      index: true,
-    },
-
-    /* =====================================================
-       DESCRIPTION
-       ===================================================== */
-
-    description: {
-      type: String,
-
-      required: [
-        true,
-        "Risk description is required.",
-      ],
-
-      trim: true,
-
-      minlength: [
-        3,
-        "Risk description must contain at least 3 characters.",
-      ],
-
-      maxlength: [
-        3000,
-        "Risk description cannot exceed 3000 characters.",
-      ],
-    },
-
-    /* =====================================================
-       STATUS
-
-       Supported values:
-
-       in_progress
-       complete
-       ===================================================== */
-
-    status: {
-      type: String,
-
-      required: [
-        true,
-        "Risk status is required.",
-      ],
-
-      enum: {
-        values: [
-          "in_progress",
-          "complete",
+        required: [
+          true,
+          "Project ID is required.",
         ],
 
-        message:
-          "Status must be in_progress or complete.",
+        immutable: true,
+
+        index: true,
       },
 
-      default: "in_progress",
+      /* =====================================================
+         PROJECT REFERENCE NUMBER
 
-      index: true,
+         Database compatibility ke liye field ka naam
+         projectCode rahega.
+
+         UI mein label:
+         Project Reference Number
+         ===================================================== */
+
+      projectCode: {
+        type: String,
+
+        required: [
+          true,
+          "Project Reference Number is required.",
+        ],
+
+        trim: true,
+        uppercase: true,
+
+        minlength: [
+          1,
+          "Project Reference Number is required.",
+        ],
+
+        maxlength: [
+          100,
+          "Project Reference Number cannot exceed 100 characters.",
+        ],
+
+        immutable: true,
+
+        index: true,
+      },
+
+      /* =====================================================
+         SERIAL NUMBER
+
+         - Number type
+         - Project-wise automatic
+         - User input nahi karega
+         - Create ke baad immutable
+         ===================================================== */
+
+      serialNo: {
+        type: Number,
+
+        required: [
+          true,
+          "Serial number is required.",
+        ],
+
+        min: [
+          1,
+          "Serial number must be at least 1.",
+        ],
+
+        immutable: true,
+
+        index: true,
+      },
+
+      /* =====================================================
+         RISK REGISTER ID
+
+         Optional field.
+
+         Iski frontend/API availability Project setting se
+         control hogi:
+
+         settings.riskRegisterIdEnabled
+         ===================================================== */
+
+      riskRegisterId: {
+        type: String,
+
+        required: false,
+
+        default: undefined,
+
+        trim: true,
+        uppercase: true,
+
+        maxlength: [
+          100,
+          "Risk Register ID cannot exceed 100 characters.",
+        ],
+
+        index: true,
+      },
+
+      /* =====================================================
+         DESCRIPTION
+         ===================================================== */
+
+      description: {
+        type: String,
+
+        required: [
+          true,
+          "Risk description is required.",
+        ],
+
+        trim: true,
+
+        minlength: [
+          3,
+          "Risk description must contain at least 3 characters.",
+        ],
+
+        maxlength: [
+          3000,
+          "Risk description cannot exceed 3000 characters.",
+        ],
+      },
+
+      /* =====================================================
+         STATUS
+
+         Supported values:
+
+         in_progress
+         complete
+         ===================================================== */
+
+      status: {
+        type: String,
+
+        required: [
+          true,
+          "Risk status is required.",
+        ],
+
+        enum: {
+          values: [
+            "in_progress",
+            "complete",
+          ],
+
+          message:
+            "Status must be in_progress or complete.",
+        },
+
+        default:
+          "in_progress",
+
+        index: true,
+      },
     },
-  },
-  {
-    timestamps: true,
+    {
+      timestamps: true,
 
-    versionKey: false,
+      versionKey: false,
 
-    strict: true,
-  }
-);
+      strict: true,
+    }
+  );
 
 /* =========================================================
    UNIQUE PROJECT SERIAL NUMBER
-
-   Same Project ke andar duplicate serialNo allowed nahi.
    ========================================================= */
 
 riskSchema.index(
@@ -205,10 +359,12 @@ riskSchema.index(
 );
 
 /* =========================================================
-   UNIQUE PROJECT RISK REGISTER ID
+   UNIQUE OPTIONAL RISK REGISTER ID
 
-   Same Project ke andar duplicate Risk Register ID
-   allowed nahi.
+   Same project ke andar duplicate non-empty ID allowed nahi.
+
+   Blank/missing Risk Register IDs multiple records mein
+   allowed hain.
    ========================================================= */
 
 riskSchema.index(
@@ -219,57 +375,88 @@ riskSchema.index(
   {
     unique: true,
 
+    partialFilterExpression: {
+      riskRegisterId: {
+        $type: "string",
+      },
+    },
+
     name:
       "unique_project_risk_register_id",
   }
 );
 
 /* =========================================================
-   LIST AND FILTER INDEX
+   PROJECT LIST AND STATUS FILTER INDEX
    ========================================================= */
 
 riskSchema.index(
   {
     projectId: 1,
     status: 1,
-    createdAt: -1,
+    serialNo: 1,
   },
   {
     name:
-      "project_risk_status_index",
+      "project_risk_status_serial_index",
   }
 );
 
 /* =========================================================
-   SEARCH INDEX
+   PROJECT CREATION DATE INDEX
    ========================================================= */
 
 riskSchema.index(
   {
-    serialNo: "text",
-    riskRegisterId: "text",
-    description: "text",
-    projectCode: "text",
+    projectId: 1,
+    createdAt: -1,
   },
   {
     name:
-      "risk_register_search_index",
+      "project_risk_created_index",
   }
 );
 
 /* =========================================================
-   NORMALIZE VALUES BEFORE VALIDATION
+   TEXT SEARCH INDEX
 
-   Mongoose 9 compatible:
+   serialNo Number hai, is liye text index mein include nahi.
 
-   - no next parameter
-   - no next() call
-   - synchronous normalization
+   Numeric serial search service mein exact number query se hogi.
+   ========================================================= */
+
+riskSchema.index(
+  {
+    riskRegisterId:
+      "text",
+
+    description:
+      "text",
+
+    projectCode:
+      "text",
+  },
+  {
+    name:
+      "risk_register_search_index",
+
+    weights: {
+      riskRegisterId: 10,
+      projectCode: 5,
+      description: 1,
+    },
+  }
+);
+
+/* =========================================================
+   NORMALIZE AND GENERATE VALUES BEFORE VALIDATION
+
+   Mongoose 9 compatible async middleware.
    ========================================================= */
 
 riskSchema.pre(
   "validate",
-  function normalizeRiskValues() {
+  async function prepareRiskValues() {
     if (
       typeof this.projectCode ===
       "string"
@@ -281,21 +468,17 @@ riskSchema.pre(
     }
 
     if (
-      typeof this.serialNo ===
-      "string"
-    ) {
-      this.serialNo =
-        this.serialNo.trim();
-    }
-
-    if (
       typeof this.riskRegisterId ===
       "string"
     ) {
-      this.riskRegisterId =
+      const normalizedRiskRegisterId =
         this.riskRegisterId
           .trim()
           .toUpperCase();
+
+      this.riskRegisterId =
+        normalizedRiskRegisterId ||
+        undefined;
     }
 
     if (
@@ -315,16 +498,41 @@ riskSchema.pre(
           .trim()
           .toLowerCase();
     }
+
+    /*
+      Existing Risk update par serial dobara generate nahi hoga.
+
+      New Risk aur missing serialNo par project-wise next
+      number reserve hoga.
+    */
+
+    if (
+      this.isNew &&
+      (
+        this.serialNo ===
+          undefined ||
+        this.serialNo ===
+          null
+      )
+    ) {
+      if (!this.projectId) {
+        return;
+      }
+
+      const serialRange =
+        await reserveRiskSerialRange(
+          this.projectId,
+          1
+        );
+
+      this.serialNo =
+        serialRange.startSerial;
+    }
   }
 );
 
 /* =========================================================
    UPDATE VALIDATION
-
-   Mongoose 9 compatible:
-
-   - no next parameter
-   - no next() call
    ========================================================= */
 
 riskSchema.pre(
@@ -342,19 +550,111 @@ riskSchema.pre(
 );
 
 /* =========================================================
+   QUERY UPDATE NORMALIZATION
+   ========================================================= */
+
+riskSchema.pre(
+  [
+    "findOneAndUpdate",
+    "updateOne",
+    "updateMany",
+  ],
+  function normalizeRiskUpdate() {
+    const update =
+      this.getUpdate();
+
+    if (!update) {
+      return;
+    }
+
+    const directUpdate =
+      update.$set ||
+      update;
+
+    if (
+      typeof directUpdate
+        .riskRegisterId ===
+      "string"
+    ) {
+      const normalizedRiskRegisterId =
+        directUpdate.riskRegisterId
+          .trim()
+          .toUpperCase();
+
+      if (
+        normalizedRiskRegisterId
+      ) {
+        directUpdate.riskRegisterId =
+          normalizedRiskRegisterId;
+      } else {
+        delete directUpdate
+          .riskRegisterId;
+
+        update.$unset = {
+          ...(update.$unset ||
+            {}),
+
+          riskRegisterId: "",
+        };
+      }
+    }
+
+    if (
+      directUpdate
+        .riskRegisterId ===
+      null
+    ) {
+      delete directUpdate
+        .riskRegisterId;
+
+      update.$unset = {
+        ...(update.$unset ||
+          {}),
+
+        riskRegisterId: "",
+      };
+    }
+
+    if (
+      typeof directUpdate
+        .description ===
+      "string"
+    ) {
+      directUpdate.description =
+        directUpdate.description.trim();
+    }
+
+    if (
+      typeof directUpdate.status ===
+      "string"
+    ) {
+      directUpdate.status =
+        directUpdate.status
+          .trim()
+          .toLowerCase();
+    }
+
+    this.setUpdate(update);
+  }
+);
+
+/* =========================================================
    JSON RESPONSE
    ========================================================= */
 
-riskSchema.set("toJSON", {
-  transform(
-    _document,
-    returnedObject
-  ) {
-    delete returnedObject.__v;
+riskSchema.set(
+  "toJSON",
+  {
+    transform(
+      _document,
+      returnedObject
+    ) {
+      delete returnedObject.__v;
 
-    return returnedObject;
-  },
-});
+      return returnedObject;
+    },
+  }
+);
 
 /* =========================================================
    MODEL EXPORT
@@ -366,5 +666,9 @@ const Risk =
     "Risk",
     riskSchema
   );
+
+export {
+  RiskSerialCounter,
+};
 
 export default Risk;

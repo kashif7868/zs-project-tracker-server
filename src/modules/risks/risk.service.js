@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 
-import Risk from "../../models/risks/risk.model.js";
+import Risk, {
+  RiskSerialCounter,
+} from "../../models/risks/risk.model.js";
 
 /* =========================================================
    CONSTANTS
@@ -23,6 +25,8 @@ const RISK_SORT_FIELDS = [
 
 const EVIDENCE_COLLECTION_NAME =
   "risk_evidences";
+
+const SERIAL_CREATION_RETRY_LIMIT = 25;
 
 /* =========================================================
    ERROR HELPER
@@ -50,12 +54,24 @@ const normalizeText = (value) => {
     : "";
 };
 
+const hasOwnField = (
+  object,
+  field
+) => {
+  return Object.prototype.hasOwnProperty.call(
+    object,
+    field
+  );
+};
+
 const validateMongoId = (
   value,
   fieldName
 ) => {
   if (
-    !mongoose.isValidObjectId(value)
+    !mongoose.isValidObjectId(
+      value
+    )
   ) {
     throw createServiceError(
       400,
@@ -94,21 +110,46 @@ const normalizeRiskStatus = (
 };
 
 /* =========================================================
-   DUPLICATE ERROR HANDLER
+   DUPLICATE HELPERS
    ========================================================= */
+
+const getDuplicateFields = (
+  error
+) => {
+  if (
+    error?.code !== 11000
+  ) {
+    return [];
+  }
+
+  return Object.keys(
+    error.keyPattern ||
+      error.keyValue ||
+      {}
+  );
+};
+
+const isDuplicateField = (
+  error,
+  field
+) => {
+  return getDuplicateFields(
+    error
+  ).includes(field);
+};
 
 const handleDuplicateRiskError = (
   error
 ) => {
-  if (error?.code !== 11000) {
+  if (
+    error?.code !== 11000
+  ) {
     throw error;
   }
 
   const duplicateFields =
-    Object.keys(
-      error.keyPattern ||
-        error.keyValue ||
-        {}
+    getDuplicateFields(
+      error
     );
 
   if (
@@ -118,7 +159,7 @@ const handleDuplicateRiskError = (
   ) {
     throw createServiceError(
       409,
-      "This serial number already exists in the selected project."
+      "Risk serial number allocation conflict occurred. Please try again."
     );
   }
 
@@ -173,7 +214,12 @@ const fetchProjectDetails = async (
       projectId
     )
       .select(
-        "_id projectCode code"
+        [
+          "_id",
+          "projectCode",
+          "code",
+          "settings.riskRegisterIdEnabled",
+        ].join(" ")
       )
       .lean();
 
@@ -193,15 +239,184 @@ const fetchProjectDetails = async (
   if (!projectCode) {
     throw createServiceError(
       400,
-      "Selected project does not have a project code."
+      "Selected project does not have a Project Reference Number."
     );
   }
 
   return {
-    projectId: project._id,
+    projectId:
+      project._id,
+
     projectCode,
+
+    riskRegisterIdEnabled:
+      project.settings
+        ?.riskRegisterIdEnabled ===
+      true,
   };
 };
+
+/* =========================================================
+   RISK REGISTER ID CONTROL
+
+   Disabled:
+
+   - New Risk Register ID cannot be supplied.
+   - Existing saved value remains preserved.
+   - Existing value cannot be changed or removed.
+
+   Enabled:
+
+   - Field is available.
+   - Field remains optional.
+   ========================================================= */
+
+const validateRiskRegisterIdSetting = ({
+  project,
+  fieldProvided,
+  riskRegisterId,
+}) => {
+  if (!fieldProvided) {
+    return;
+  }
+
+  if (
+    !project
+      .riskRegisterIdEnabled
+  ) {
+    throw createServiceError(
+      400,
+      "Risk Register ID is disabled for this project."
+    );
+  }
+
+  const normalizedValue =
+    normalizeText(
+      riskRegisterId
+    );
+
+  if (
+    normalizedValue.length >
+    100
+  ) {
+    throw createServiceError(
+      400,
+      "Risk Register ID cannot exceed 100 characters."
+    );
+  }
+};
+
+/* =========================================================
+   SERIAL COUNTER SYNCHRONIZATION
+
+   Existing serialNo values Number ya old String format mein
+   ho sakti hain.
+
+   Example:
+
+   "001"
+   "25"
+   120
+
+   Aggregation un values ko integer mein convert karke project
+   ka maximum serial calculate karegi.
+
+   Counter kabhi peeche nahi jayega because $max use ho raha hai.
+   ========================================================= */
+
+const synchronizeRiskSerialCounter =
+  async (projectId) => {
+    validateMongoId(
+      projectId,
+      "Project ID"
+    );
+
+    const projectObjectId =
+      new mongoose.Types.ObjectId(
+        projectId
+      );
+
+    const maximumSerialResult =
+      await Risk.collection
+        .aggregate([
+          {
+            $match: {
+              projectId:
+                projectObjectId,
+            },
+          },
+          {
+            $project: {
+              convertedSerial: {
+                $convert: {
+                  input:
+                    "$serialNo",
+
+                  to:
+                    "int",
+
+                  onError:
+                    null,
+
+                  onNull:
+                    null,
+                },
+              },
+            },
+          },
+          {
+            $match: {
+              convertedSerial: {
+                $ne: null,
+              },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+
+              maximumSerial: {
+                $max:
+                  "$convertedSerial",
+              },
+            },
+          },
+        ])
+        .toArray();
+
+    const maximumSerial =
+      Number(
+        maximumSerialResult[0]
+          ?.maximumSerial ||
+          0
+      );
+
+    if (
+      !Number.isInteger(
+        maximumSerial
+      ) ||
+      maximumSerial < 1
+    ) {
+      return;
+    }
+
+    await RiskSerialCounter.updateOne(
+      {
+        projectId:
+          projectObjectId,
+      },
+      {
+        $max: {
+          sequence:
+            maximumSerial,
+        },
+      },
+      {
+        upsert: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+  };
 
 /* =========================================================
    EVIDENCE COLLECTION
@@ -253,10 +468,10 @@ export const getRiskEvidenceSummary =
         .aggregate([
           {
             $match: {
-              riskId: riskObjectId,
+              riskId:
+                riskObjectId,
             },
           },
-
           {
             $group: {
               _id:
@@ -273,21 +488,25 @@ export const getRiskEvidenceSummary =
     const evidenceSummary =
       getEmptyEvidenceSummary();
 
-    summary.forEach((item) => {
-      if (
-        item._id === "before"
-      ) {
-        evidenceSummary.beforeCount =
-          item.count;
-      }
+    summary.forEach(
+      (item) => {
+        if (
+          item._id ===
+          "before"
+        ) {
+          evidenceSummary.beforeCount =
+            item.count;
+        }
 
-      if (
-        item._id === "after"
-      ) {
-        evidenceSummary.afterCount =
-          item.count;
+        if (
+          item._id ===
+          "after"
+        ) {
+          evidenceSummary.afterCount =
+            item.count;
+        }
       }
-    });
+    );
 
     evidenceSummary.canMarkComplete =
       evidenceSummary.beforeCount >
@@ -309,7 +528,9 @@ const getEvidenceSummaryMap = async (
     new Map();
 
   if (
-    !Array.isArray(riskIds) ||
+    !Array.isArray(
+      riskIds
+    ) ||
     riskIds.length === 0
   ) {
     return summaryMap;
@@ -324,11 +545,11 @@ const getEvidenceSummaryMap = async (
         {
           $match: {
             riskId: {
-              $in: riskIds,
+              $in:
+                riskIds,
             },
           },
         },
-
         {
           $group: {
             _id: {
@@ -347,43 +568,47 @@ const getEvidenceSummaryMap = async (
       ])
       .toArray();
 
-  summary.forEach((item) => {
-    const riskId =
-      item._id.riskId.toString();
+  summary.forEach(
+    (item) => {
+      const riskId =
+        item._id.riskId.toString();
 
-    const currentSummary =
-      summaryMap.get(
-        riskId
-      ) ||
-      getEmptyEvidenceSummary();
+      const currentSummary =
+        summaryMap.get(
+          riskId
+        ) ||
+        getEmptyEvidenceSummary();
 
-    if (
-      item._id.evidenceType ===
-      "before"
-    ) {
-      currentSummary.beforeCount =
-        item.count;
+      if (
+        item._id
+          .evidenceType ===
+        "before"
+      ) {
+        currentSummary.beforeCount =
+          item.count;
+      }
+
+      if (
+        item._id
+          .evidenceType ===
+        "after"
+      ) {
+        currentSummary.afterCount =
+          item.count;
+      }
+
+      currentSummary.canMarkComplete =
+        currentSummary.beforeCount >
+          0 &&
+        currentSummary.afterCount >
+          0;
+
+      summaryMap.set(
+        riskId,
+        currentSummary
+      );
     }
-
-    if (
-      item._id.evidenceType ===
-      "after"
-    ) {
-      currentSummary.afterCount =
-        item.count;
-    }
-
-    currentSummary.canMarkComplete =
-      currentSummary.beforeCount >
-        0 &&
-      currentSummary.afterCount >
-        0;
-
-    summaryMap.set(
-      riskId,
-      currentSummary
-    );
-  });
+  );
 
   return summaryMap;
 };
@@ -424,14 +649,18 @@ export const getRiskEvidence =
           record.evidenceType ===
           "before"
         ) {
-          before.push(record);
+          before.push(
+            record
+          );
         }
 
         if (
           record.evidenceType ===
           "after"
         ) {
-          after.push(record);
+          after.push(
+            record
+          );
         }
       }
     );
@@ -454,59 +683,169 @@ export const getRiskEvidence =
 
 /* =========================================================
    CREATE RISK
+
+   Allowed:
+
+   projectId
+   description
+   riskRegisterId optional
+
+   serialNo automatically generated.
+   status automatically in_progress.
    ========================================================= */
 
 export const createRiskService =
-  async ({
-    projectId,
-    serialNo,
-    riskRegisterId,
-    description,
-  }) => {
-    try {
-      const project =
-        await fetchProjectDetails(
-          projectId
-        );
+  async (payload = {}) => {
+    const {
+      projectId,
+      riskRegisterId,
+      description,
+    } = payload;
 
-      const risk =
-        await Risk.create({
-          projectId:
-            project.projectId,
-
-          projectCode:
-            project.projectCode,
-
-          serialNo:
-            normalizeText(
-              serialNo
-            ),
-
-          riskRegisterId:
-            normalizeText(
-              riskRegisterId
-            ).toUpperCase(),
-
-          description:
-            normalizeText(
-              description
-            ),
-
-          status:
-            "in_progress",
-        });
-
-      return {
-        risk,
-
-        evidence:
-          getEmptyEvidenceSummary(),
-      };
-    } catch (error) {
-      handleDuplicateRiskError(
-        error
+    if (
+      hasOwnField(
+        payload,
+        "serialNo"
+      )
+    ) {
+      throw createServiceError(
+        400,
+        "Serial number is generated automatically and cannot be supplied."
       );
     }
+
+    if (
+      hasOwnField(
+        payload,
+        "status"
+      )
+    ) {
+      throw createServiceError(
+        400,
+        "New risks always start with in_progress status."
+      );
+    }
+
+    const project =
+      await fetchProjectDetails(
+        projectId
+      );
+
+    const riskRegisterIdProvided =
+      hasOwnField(
+        payload,
+        "riskRegisterId"
+      ) &&
+      Boolean(
+        normalizeText(
+          riskRegisterId
+        )
+      );
+
+    validateRiskRegisterIdSetting({
+      project,
+
+      fieldProvided:
+        riskRegisterIdProvided,
+
+      riskRegisterId,
+    });
+
+    const normalizedDescription =
+      normalizeText(
+        description
+      );
+
+    if (
+      normalizedDescription.length <
+      3
+    ) {
+      throw createServiceError(
+        400,
+        "Description must contain at least 3 characters."
+      );
+    }
+
+    if (
+      normalizedDescription.length >
+      3000
+    ) {
+      throw createServiceError(
+        400,
+        "Description cannot exceed 3000 characters."
+      );
+    }
+
+    await synchronizeRiskSerialCounter(
+      project.projectId
+    );
+
+    for (
+      let attempt = 1;
+      attempt <=
+      SERIAL_CREATION_RETRY_LIMIT;
+      attempt += 1
+    ) {
+      try {
+        const risk =
+          await Risk.create({
+            projectId:
+              project.projectId,
+
+            projectCode:
+              project.projectCode,
+
+            ...(riskRegisterIdProvided
+              ? {
+                  riskRegisterId:
+                    normalizeText(
+                      riskRegisterId
+                    ).toUpperCase(),
+                }
+              : {}),
+
+            description:
+              normalizedDescription,
+
+            status:
+              "in_progress",
+          });
+
+        return {
+          risk,
+
+          evidence:
+            getEmptyEvidenceSummary(),
+        };
+      } catch (error) {
+        const serialConflict =
+          isDuplicateField(
+            error,
+            "serialNo"
+          );
+
+        if (
+          serialConflict &&
+          attempt <
+            SERIAL_CREATION_RETRY_LIMIT
+        ) {
+          await synchronizeRiskSerialCounter(
+            project.projectId
+          );
+
+          continue;
+        }
+
+        handleDuplicateRiskError(
+          error
+        );
+      }
+    }
+
+    throw createServiceError(
+      409,
+      "Risk serial number could not be allocated. Please try again."
+    );
   };
 
 /* =========================================================
@@ -565,7 +904,9 @@ export const getRisksService =
         status
       );
 
-    if (normalizedProjectId) {
+    if (
+      normalizedProjectId
+    ) {
       validateMongoId(
         normalizedProjectId,
         "Project ID"
@@ -577,56 +918,68 @@ export const getRisksService =
         );
     }
 
-    if (normalizedStatus) {
+    if (
+      normalizedStatus
+    ) {
       filter.status =
         normalizeRiskStatus(
           normalizedStatus
         );
     }
 
-    if (normalizedSearch) {
+    if (
+      normalizedSearch
+    ) {
       const safeSearch =
         escapeRegex(
           normalizedSearch
         );
 
-      filter.$or = [
-        {
-          serialNo: {
-            $regex:
-              safeSearch,
-
-            $options: "i",
-          },
-        },
-
+      const searchConditions = [
         {
           riskRegisterId: {
             $regex:
               safeSearch,
 
-            $options: "i",
+            $options:
+              "i",
           },
         },
-
         {
           projectCode: {
             $regex:
               safeSearch,
 
-            $options: "i",
+            $options:
+              "i",
           },
         },
-
         {
           description: {
             $regex:
               safeSearch,
 
-            $options: "i",
+            $options:
+              "i",
           },
         },
       ];
+
+      if (
+        /^\d+$/.test(
+          normalizedSearch
+        )
+      ) {
+        searchConditions.unshift({
+          serialNo:
+            Number(
+              normalizedSearch
+            ),
+        });
+      }
+
+      filter.$or =
+        searchConditions;
     }
 
     const receivedSortBy =
@@ -652,24 +1005,31 @@ export const getRisksService =
     const [
       risks,
       totalRecords,
-    ] = await Promise.all([
-      Risk.find(filter)
-        .sort({
-          [normalizedSortBy]:
-            normalizedSortOrder,
-        })
-        .skip(skip)
-        .limit(currentLimit)
-        .lean(),
+    ] =
+      await Promise.all([
+        Risk.find(filter)
+          .sort({
+            [normalizedSortBy]:
+              normalizedSortOrder,
 
-      Risk.countDocuments(
-        filter
-      ),
-    ]);
+            _id:
+              normalizedSortOrder,
+          })
+          .skip(skip)
+          .limit(
+            currentLimit
+          )
+          .lean(),
+
+        Risk.countDocuments(
+          filter
+        ),
+      ]);
 
     const riskIds =
       risks.map(
-        (risk) => risk._id
+        (risk) =>
+          risk._id
       );
 
     const evidenceSummaryMap =
@@ -678,19 +1038,20 @@ export const getRisksService =
       );
 
     const risksWithEvidence =
-      risks.map((risk) => {
-        const evidenceSummary =
-          evidenceSummaryMap.get(
-            risk._id.toString()
-          ) ||
-          getEmptyEvidenceSummary();
+      risks.map(
+        (risk) => {
+          const evidenceSummary =
+            evidenceSummaryMap.get(
+              risk._id.toString()
+            ) ||
+            getEmptyEvidenceSummary();
 
-        return {
-          ...risk,
-
-          evidenceSummary,
-        };
-      });
+          return {
+            ...risk,
+            evidenceSummary,
+          };
+        }
+      );
 
     const totalPages =
       Math.max(
@@ -712,10 +1073,6 @@ export const getRisksService =
         limit:
           currentLimit,
 
-        /*
-          Frontend RiskPagination.total use karta hai.
-          totalRecords compatibility ke liye bhi rakha hai.
-        */
         total:
           totalRecords,
 
@@ -769,23 +1126,106 @@ export const getRiskByIdService =
 
 /* =========================================================
    UPDATE RISK
+
+   Editable:
+
+   description
+   riskRegisterId optional
+
+   Protected:
+
+   projectId
+   projectCode
+   serialNo
+   status
    ========================================================= */
 
 export const updateRiskService =
   async (
     riskId,
-    {
-      projectId,
-      serialNo,
-      riskRegisterId,
-      description,
-    }
+    updateData = {}
   ) => {
     try {
       validateMongoId(
         riskId,
         "Risk ID"
       );
+
+      const protectedFields = [
+        "projectId",
+        "projectCode",
+        "serialNo",
+        "status",
+      ];
+
+      const receivedProtectedField =
+        protectedFields.find(
+          (field) =>
+            hasOwnField(
+              updateData,
+              field
+            )
+        );
+
+      if (
+        receivedProtectedField
+      ) {
+        const messages = {
+          projectId:
+            "A risk cannot be moved to another project.",
+
+          projectCode:
+            "Project Reference Number cannot be changed from the risk update endpoint.",
+
+          serialNo:
+            "Serial number is generated automatically and cannot be updated.",
+
+          status:
+            "Use the dedicated risk status endpoint to update status.",
+        };
+
+        throw createServiceError(
+          400,
+          messages[
+            receivedProtectedField
+          ]
+        );
+      }
+
+      const allowedFields = [
+        "riskRegisterId",
+        "description",
+      ];
+
+      const receivedFields =
+        Object.keys(
+          updateData
+        );
+
+      const invalidField =
+        receivedFields.find(
+          (field) =>
+            !allowedFields.includes(
+              field
+            )
+        );
+
+      if (invalidField) {
+        throw createServiceError(
+          400,
+          `${invalidField} is not allowed while updating a risk.`
+        );
+      }
+
+      if (
+        receivedFields.length ===
+        0
+      ) {
+        throw createServiceError(
+          400,
+          "At least one risk field is required."
+        );
+      }
 
       const risk =
         await Risk.findById(
@@ -801,8 +1241,78 @@ export const updateRiskService =
 
       const project =
         await fetchProjectDetails(
-          projectId
+          risk.projectId.toString()
         );
+
+      if (
+        hasOwnField(
+          updateData,
+          "riskRegisterId"
+        )
+      ) {
+        validateRiskRegisterIdSetting({
+          project,
+
+          fieldProvided: true,
+
+          riskRegisterId:
+            updateData
+              .riskRegisterId,
+        });
+
+        const normalizedRiskRegisterId =
+          normalizeText(
+            updateData
+              .riskRegisterId
+          );
+
+        risk.riskRegisterId =
+          normalizedRiskRegisterId
+            ? normalizedRiskRegisterId.toUpperCase()
+            : undefined;
+      }
+
+      if (
+        hasOwnField(
+          updateData,
+          "description"
+        )
+      ) {
+        const normalizedDescription =
+          normalizeText(
+            updateData.description
+          );
+
+        if (
+          normalizedDescription.length <
+          3
+        ) {
+          throw createServiceError(
+            400,
+            "Description must contain at least 3 characters."
+          );
+        }
+
+        if (
+          normalizedDescription.length >
+          3000
+        ) {
+          throw createServiceError(
+            400,
+            "Description cannot exceed 3000 characters."
+          );
+        }
+
+        risk.description =
+          normalizedDescription;
+      }
+
+      /*
+        Project transfer allowed nahi.
+
+        Stored project reference ko current Project record ke
+        reference ke saath synchronize kiya ja raha hai.
+      */
 
       risk.projectId =
         project.projectId;
@@ -810,45 +1320,41 @@ export const updateRiskService =
       risk.projectCode =
         project.projectCode;
 
-      risk.serialNo =
-        normalizeText(
-          serialNo
-        );
-
-      risk.riskRegisterId =
-        normalizeText(
-          riskRegisterId
-        ).toUpperCase();
-
-      risk.description =
-        normalizeText(
-          description
-        );
-
       await risk.save();
 
       const evidenceCollection =
         getEvidenceCollection();
 
+      const evidenceUpdate = {
+        $set: {
+          projectId:
+            project.projectId,
+
+          projectCode:
+            project.projectCode,
+
+          updatedAt:
+            new Date(),
+        },
+      };
+
+      if (
+        risk.riskRegisterId
+      ) {
+        evidenceUpdate.$set.riskRegisterId =
+          risk.riskRegisterId;
+      } else {
+        evidenceUpdate.$unset = {
+          riskRegisterId: "",
+        };
+      }
+
       await evidenceCollection.updateMany(
         {
-          riskId: risk._id,
+          riskId:
+            risk._id,
         },
-        {
-          $set: {
-            projectId:
-              project.projectId,
-
-            projectCode:
-              project.projectCode,
-
-            riskRegisterId:
-              risk.riskRegisterId,
-
-            updatedAt:
-              new Date(),
-          },
-        }
+        evidenceUpdate
       );
 
       const evidence =
@@ -913,7 +1419,8 @@ export const updateRiskStatusService =
       );
     }
 
-    risk.status = status;
+    risk.status =
+      status;
 
     await risk.save();
 
@@ -997,7 +1504,8 @@ export const deleteRiskService =
     const evidenceRecords =
       await evidenceCollection
         .find({
-          riskId: risk._id,
+          riskId:
+            risk._id,
         })
         .toArray();
 
@@ -1015,7 +1523,8 @@ export const deleteRiskService =
         );
 
     const deletedRisk = {
-      _id: risk._id,
+      _id:
+        risk._id,
 
       projectId:
         risk.projectId,
@@ -1045,17 +1554,20 @@ export const deleteRiskService =
     const evidenceDeleteResult =
       await evidenceCollection.deleteMany(
         {
-          riskId: risk._id,
+          riskId:
+            risk._id,
         }
       );
 
     await risk.deleteOne();
 
     return {
-      risk: deletedRisk,
+      risk:
+        deletedRisk,
 
       deletedEvidenceCount:
-        evidenceDeleteResult.deletedCount ??
+        evidenceDeleteResult
+          .deletedCount ??
         0,
 
       imagePaths,

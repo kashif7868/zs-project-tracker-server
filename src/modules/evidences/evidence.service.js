@@ -35,8 +35,11 @@ const createServiceError = (
 ) => {
   const error = new Error(message);
 
-  error.statusCode = statusCode;
-  error.status = statusCode;
+  error.statusCode =
+    statusCode;
+
+  error.status =
+    statusCode;
 
   return error;
 };
@@ -45,8 +48,11 @@ const createServiceError = (
    GENERAL HELPERS
    ========================================================= */
 
-const normalizeText = (value) => {
-  return typeof value === "string"
+const normalizeText = (
+  value
+) => {
+  return typeof value ===
+    "string"
     ? value.trim()
     : "";
 };
@@ -56,7 +62,9 @@ const validateMongoId = (
   fieldName
 ) => {
   const normalizedValue =
-    normalizeText(value);
+    normalizeText(
+      value
+    );
 
   if (
     !mongoose.isValidObjectId(
@@ -108,6 +116,20 @@ const toPlainObject = (
   return value;
 };
 
+const getOptionalRiskRegisterId = (
+  value
+) => {
+  const riskRegisterId =
+    normalizeText(
+      value
+    ).toUpperCase();
+
+  return (
+    riskRegisterId ||
+    undefined
+  );
+};
+
 /* =========================================================
    IMAGE PATH VALIDATION
    ========================================================= */
@@ -116,7 +138,8 @@ const normalizeImagePath = (
   value
 ) => {
   if (
-    typeof value !== "string"
+    typeof value !==
+    "string"
   ) {
     throw createServiceError(
       400,
@@ -124,9 +147,13 @@ const normalizeImagePath = (
     );
   }
 
-  let imagePath = value
-    .trim()
-    .replaceAll("\\", "/");
+  let imagePath =
+    value
+      .trim()
+      .replaceAll(
+        "\\",
+        "/"
+      );
 
   if (!imagePath) {
     throw createServiceError(
@@ -136,14 +163,18 @@ const normalizeImagePath = (
   }
 
   if (
-    !imagePath.startsWith("/")
+    !imagePath.startsWith(
+      "/"
+    )
   ) {
     imagePath =
       `/${imagePath}`;
   }
 
   if (
-    imagePath.includes("..")
+    imagePath.includes(
+      ".."
+    )
   ) {
     throw createServiceError(
       400,
@@ -162,7 +193,9 @@ const normalizeImagePath = (
         )
     );
 
-  if (!hasAllowedExtension) {
+  if (
+    !hasAllowedExtension
+  ) {
     throw createServiceError(
       400,
       "Only JPG, JPEG, PNG and WEBP Evidence images are allowed."
@@ -176,7 +209,9 @@ const normalizeImagePaths = (
   imagePaths
 ) => {
   if (
-    !Array.isArray(imagePaths)
+    !Array.isArray(
+      imagePaths
+    )
   ) {
     throw createServiceError(
       400,
@@ -193,7 +228,8 @@ const normalizeImagePaths = (
   ];
 
   if (
-    normalizedPaths.length === 0
+    normalizedPaths.length ===
+    0
   ) {
     throw createServiceError(
       400,
@@ -245,8 +281,14 @@ const getRiskRecord = async (
 const buildRiskResponse = (
   risk
 ) => {
+  const riskRegisterId =
+    getOptionalRiskRegisterId(
+      risk.riskRegisterId
+    );
+
   return {
-    _id: risk._id,
+    _id:
+      risk._id,
 
     projectId:
       risk.projectId,
@@ -257,8 +299,11 @@ const buildRiskResponse = (
     serialNo:
       risk.serialNo,
 
-    riskRegisterId:
-      risk.riskRegisterId,
+    ...(riskRegisterId
+      ? {
+          riskRegisterId,
+        }
+      : {}),
 
     description:
       risk.description,
@@ -290,14 +335,18 @@ const buildEvidenceResponse = (
         record.evidenceType ===
         "before"
       ) {
-        before.push(record);
+        before.push(
+          record
+        );
       }
 
       if (
         record.evidenceType ===
         "after"
       ) {
-        after.push(record);
+        after.push(
+          record
+        );
       }
     }
   );
@@ -323,7 +372,9 @@ const buildEvidenceResponse = (
    ========================================================= */
 
 export const getRiskEvidencesService =
-  async (riskId) => {
+  async (
+    riskId
+  ) => {
     const risk =
       await getRiskRecord(
         riskId
@@ -377,7 +428,9 @@ export const getEvidenceByTypeService =
 
     return {
       evidenceType,
+
       evidences,
+
       count:
         evidences.length,
     };
@@ -386,9 +439,14 @@ export const getEvidenceByTypeService =
 /* =========================================================
    ADD EVIDENCE IMAGES
 
-   Upload does not automatically mark a Risk Complete.
+   Maximum limit per Risk:
 
-   The user must manually use Mark Complete after at least:
+   10 Before images
+   10 After images
+
+   Evidence upload Risk ko automatically Complete nahi karega.
+
+   User manually Mark Complete use karega after at least:
 
    - one Before image
    - one After image
@@ -397,8 +455,10 @@ export const getEvidenceByTypeService =
 export const addEvidenceImagesService =
   async ({
     riskId,
+
     evidenceType:
       requestedEvidenceType,
+
     imagePaths,
   }) => {
     const risk =
@@ -428,7 +488,8 @@ export const addEvidenceImagesService =
       );
 
     if (
-      invalidFolderPaths.length > 0
+      invalidFolderPaths.length >
+      0
     ) {
       throw createServiceError(
         400,
@@ -436,22 +497,34 @@ export const addEvidenceImagesService =
       );
     }
 
-    const existingEvidence =
-      await Evidence.find({
-        riskId:
-          risk._id,
+    const [
+      existingEvidence,
+      currentEvidenceCount,
+    ] =
+      await Promise.all([
+        Evidence.find({
+          riskId:
+            risk._id,
 
-        evidenceType,
+          evidenceType,
 
-        imagePath: {
-          $in:
-            normalizedImagePaths,
-        },
-      })
-        .select(
-          "imagePath"
-        )
-        .lean();
+          imagePath: {
+            $in:
+              normalizedImagePaths,
+          },
+        })
+          .select(
+            "imagePath"
+          )
+          .lean(),
+
+        Evidence.countDocuments({
+          riskId:
+            risk._id,
+
+          evidenceType,
+        }),
+      ]);
 
     const existingImagePaths =
       new Set(
@@ -470,13 +543,37 @@ export const addEvidenceImagesService =
       );
 
     if (
-      newImagePaths.length === 0
+      newImagePaths.length ===
+      0
     ) {
       throw createServiceError(
         409,
         "These Evidence images are already attached to this Risk."
       );
     }
+
+    if (
+      currentEvidenceCount +
+        newImagePaths.length >
+      MAX_EVIDENCE_IMAGES
+    ) {
+      const remainingSlots =
+        Math.max(
+          MAX_EVIDENCE_IMAGES -
+            currentEvidenceCount,
+          0
+        );
+
+      throw createServiceError(
+        400,
+        `Maximum ${MAX_EVIDENCE_IMAGES} ${evidenceType} Evidence images are allowed per Risk. ${remainingSlots} upload slot${remainingSlots === 1 ? "" : "s"} remaining.`
+      );
+    }
+
+    const riskRegisterId =
+      getOptionalRiskRegisterId(
+        risk.riskRegisterId
+      );
 
     const evidenceDocuments =
       newImagePaths.map(
@@ -490,8 +587,11 @@ export const addEvidenceImagesService =
           riskId:
             risk._id,
 
-          riskRegisterId:
-            risk.riskRegisterId,
+          ...(riskRegisterId
+            ? {
+                riskRegisterId,
+              }
+            : {}),
 
           evidenceType,
 
@@ -516,10 +616,10 @@ export const addEvidenceImagesService =
         );
     } catch (error) {
       /*
-        insertMany partially succeed ho sakta hai.
+        insertMany partial success de sakta hai.
 
-        New image paths ke records rollback kiye ja rahe hain.
-        Controller physical image files bhi cleanup karega.
+        Current upload ke new image records rollback honge.
+        Controller related physical files cleanup karega.
       */
 
       await Evidence.deleteMany({
@@ -535,7 +635,8 @@ export const addEvidenceImagesService =
       });
 
       if (
-        error?.code === 11000
+        error?.code ===
+        11000
       ) {
         throw createServiceError(
           409,
@@ -575,8 +676,10 @@ export const addBeforeEvidenceService =
   ) => {
     return addEvidenceImagesService({
       riskId,
+
       evidenceType:
         "before",
+
       imagePaths,
     });
   };
@@ -592,8 +695,10 @@ export const addAfterEvidenceService =
   ) => {
     return addEvidenceImagesService({
       riskId,
+
       evidenceType:
         "after",
+
       imagePaths,
     });
   };
@@ -603,7 +708,9 @@ export const addAfterEvidenceService =
    ========================================================= */
 
 export const getEvidenceByIdService =
-  async (evidenceId) => {
+  async (
+    evidenceId
+  ) => {
     const normalizedEvidenceId =
       validateMongoId(
         evidenceId,
@@ -630,7 +737,7 @@ export const getEvidenceByIdService =
 
    Database record is deleted here.
 
-   Physical image file is deleted by the controller.
+   Physical image file is deleted by controller.
 
    Required Evidence removal from a completed Risk moves the
    Risk back to In Progress.
@@ -668,6 +775,11 @@ export const deleteEvidenceService =
       );
     }
 
+    const riskRegisterId =
+      getOptionalRiskRegisterId(
+        evidence.riskRegisterId
+      );
+
     const deletedEvidence = {
       _id:
         evidence._id,
@@ -681,8 +793,11 @@ export const deleteEvidenceService =
       riskId:
         evidence.riskId,
 
-      riskRegisterId:
-        evidence.riskRegisterId,
+      ...(riskRegisterId
+        ? {
+            riskRegisterId,
+          }
+        : {}),
 
       evidenceType:
         evidence.evidenceType,
@@ -751,7 +866,8 @@ export const deleteEvidenceTypeService =
         .lean();
 
     if (
-      evidenceRecords.length === 0
+      evidenceRecords.length ===
+      0
     ) {
       throw createServiceError(
         404,

@@ -1,15 +1,15 @@
 import express from "express";
 
 import {
-  createProject,
-  getProjects,
-  getProjectById,
-  updateProject,
   archiveProject,
+  createProject,
+  getProjectById,
+  getProjects,
+  getPublicProjectByAccessToken,
   permanentlyDeleteProject,
   regenerateClientAccessToken,
   revokeClientAccess,
-  getPublicProjectByAccessToken,
+  updateProject,
 } from "./project.controller.js";
 
 import {
@@ -18,127 +18,228 @@ import {
 } from "./project.validation.js";
 
 import authMiddleware from "../../middlewares/auth.middleware.js";
-import roleMiddleware from "../../middlewares/role.middleware.js";
+
+import roleMiddleware, {
+  permissionMiddleware,
+} from "../../middlewares/role.middleware.js";
 
 const router = express.Router();
 
-/**
- * Health-check route
- * GET /api/v1/projects/health
- */
-router.get("/health", (req, res) => {
-  return res.status(200).json({
-    success: true,
-    message: "Project routes are working successfully",
-  });
-});
+/* =========================================================
+   HEALTH CHECK
 
-/**
- * Public client tracker route
- * This route must remain before /:projectId
- *
- * GET /api/v1/projects/public/access/:accessToken
- */
+   Public route.
+
+   GET /api/v1/projects/health
+   ========================================================= */
+
+router.get(
+  "/health",
+  (req, res) => {
+    return res
+      .status(200)
+      .json({
+        success: true,
+
+        message:
+          "Project routes are working successfully",
+      });
+  }
+);
+
+/* =========================================================
+   PUBLIC CLIENT TRACKER
+
+   Authentication required nahi hai.
+
+   Is route ko /:projectId se pehle rakhna zaroori hai.
+
+   GET /api/v1/projects/public/access/:accessToken
+   ========================================================= */
+
 router.get(
   "/public/access/:accessToken",
+
   getPublicProjectByAccessToken
 );
 
-/**
- * All routes below require authentication
- */
-router.use(authMiddleware);
+/* =========================================================
+   AUTHENTICATION
 
-/**
- * Create a project
- * Admin and Super Admin only
- *
- * POST /api/v1/projects
- */
+   Neeche wali tamam routes protected hain.
+   ========================================================= */
+
+router.use(
+  authMiddleware
+);
+
+/* =========================================================
+   CREATE PROJECT
+
+   Required permission:
+
+   projects.create
+
+   POST /api/v1/projects
+   ========================================================= */
+
 router.post(
   "/",
-  roleMiddleware("admin", "super_admin"),
+
+  permissionMiddleware(
+    "projects.create"
+  ),
+
   validateCreateProject,
+
   createProject
 );
 
-/**
- * Get all projects
- * Admin and Super Admin only
- *
- * GET /api/v1/projects
- */
+/* =========================================================
+   GET ALL PROJECTS
+
+   Required permission:
+
+   projects.view
+
+   Risk aur Evidence forms ke project dropdown ke liye bhi
+   yahi endpoint use ho sakta hai.
+
+   GET /api/v1/projects
+   ========================================================= */
+
 router.get(
   "/",
-  roleMiddleware("admin", "super_admin"),
+
+  permissionMiddleware(
+    "projects.view"
+  ),
+
   getProjects
 );
 
-/**
- * Generate a new secure client-access token
- *
- * POST /api/v1/projects/:projectId/client-access
- */
+/* =========================================================
+   GENERATE CLIENT ACCESS TOKEN
+
+   Required permission:
+
+   projects.client_access
+
+   POST /api/v1/projects/:projectId/client-access
+   ========================================================= */
+
 router.post(
   "/:projectId/client-access",
-  roleMiddleware("admin", "super_admin"),
+
+  permissionMiddleware(
+    "projects.client_access"
+  ),
+
   regenerateClientAccessToken
 );
 
-/**
- * Revoke client access
- *
- * PATCH /api/v1/projects/:projectId/client-access/revoke
- */
+/* =========================================================
+   REVOKE CLIENT ACCESS
+
+   Required permission:
+
+   projects.client_access
+
+   PATCH
+   /api/v1/projects/:projectId/client-access/revoke
+   ========================================================= */
+
 router.patch(
   "/:projectId/client-access/revoke",
-  roleMiddleware("admin", "super_admin"),
+
+  permissionMiddleware(
+    "projects.client_access"
+  ),
+
   revokeClientAccess
 );
 
-/**
- * Archive a project
- *
- * PATCH /api/v1/projects/:projectId/archive
- */
+/* =========================================================
+   ARCHIVE PROJECT
+
+   Required permission:
+
+   projects.archive
+
+   PATCH /api/v1/projects/:projectId/archive
+   ========================================================= */
+
 router.patch(
   "/:projectId/archive",
-  roleMiddleware("admin", "super_admin"),
+
+  permissionMiddleware(
+    "projects.archive"
+  ),
+
   archiveProject
 );
 
-/**
- * Permanently delete a project
- * Super Admin only
- *
- * DELETE /api/v1/projects/:projectId/permanent
- */
+/* =========================================================
+   PERMANENTLY DELETE PROJECT
+
+   Super Admin only.
+
+   Yeh irreversible operation hai, is liye dynamic custom
+   role permission ke bajaye direct system-role protection
+   preserve ki gayi hai.
+
+   DELETE /api/v1/projects/:projectId/permanent
+   ========================================================= */
+
 router.delete(
   "/:projectId/permanent",
-  roleMiddleware("super_admin"),
+
+  roleMiddleware(
+    "super_admin"
+  ),
+
   permanentlyDeleteProject
 );
 
-/**
- * Get one project by ID
- *
- * GET /api/v1/projects/:projectId
- */
+/* =========================================================
+   GET SINGLE PROJECT
+
+   Required permission:
+
+   projects.view
+
+   GET /api/v1/projects/:projectId
+   ========================================================= */
+
 router.get(
   "/:projectId",
-  roleMiddleware("admin", "super_admin"),
+
+  permissionMiddleware(
+    "projects.view"
+  ),
+
   getProjectById
 );
 
-/**
- * Update a project
- *
- * PATCH /api/v1/projects/:projectId
- */
+/* =========================================================
+   UPDATE PROJECT
+
+   Required permission:
+
+   projects.update
+
+   PATCH /api/v1/projects/:projectId
+   ========================================================= */
+
 router.patch(
   "/:projectId",
-  roleMiddleware("admin", "super_admin"),
+
+  permissionMiddleware(
+    "projects.update"
+  ),
+
   validateUpdateProject,
+
   updateProject
 );
 

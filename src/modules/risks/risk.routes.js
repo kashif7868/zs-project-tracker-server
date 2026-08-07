@@ -3,6 +3,10 @@ import express from "express";
 import authMiddleware from "../../middlewares/auth.middleware.js";
 
 import {
+  permissionMiddleware,
+} from "../../middlewares/role.middleware.js";
+
+import {
   createRisk,
   deleteRisk,
   getProjectRisks,
@@ -31,269 +35,262 @@ const router = express.Router();
    Risk Register ki tamam routes protected hain.
    ========================================================= */
 
-router.use(authMiddleware);
-
-/* =========================================================
-   ROLE AUTHORIZATION
-   ========================================================= */
-
-const authorizeRoles = (...allowedRoles) => {
-  return (req, res, next) => {
-    const userRole = req.user?.role;
-
-    if (!userRole) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "User role information is not available.",
-      });
-    }
-
-    if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "You are not authorized to perform this action.",
-      });
-    }
-
-    return next();
-  };
-};
-
-const adminOnly = authorizeRoles(
-  "admin",
-  "super_admin"
+router.use(
+  authMiddleware
 );
 
 /* =========================================================
-   PROJECT-SPECIFIC ROUTES
+   PROJECT-SPECIFIC RISK LIST
 
-   In routes ko /:riskId se pehle rakhna zaroori hai.
+   Required permission:
+
+   risks.view
+
+   GET /api/v1/risks/project/:projectId
    ========================================================= */
 
-/**
- * GET /api/v1/risks/project/:projectId
- *
- * Selected project ke risks fetch karega.
- *
- * Project ID frontend project dropdown se aayegi.
- *
- * Query:
- * search
- * status
- * page
- * limit
- * sortBy
- * sortOrder
- */
 router.get(
   "/project/:projectId",
+
+  permissionMiddleware(
+    "risks.view"
+  ),
+
   validateProjectIdParam,
   validateRiskListQuery,
+
   getProjectRisks
 );
 
 /* =========================================================
-   MAIN RISK COLLECTION
+   GET ALL RISKS
+
+   Required permission:
+
+   risks.view
+
+   GET /api/v1/risks
    ========================================================= */
 
-/**
- * GET /api/v1/risks
- *
- * Tamam risk records retrieve karega.
- *
- * Query:
- * projectId
- * search
- * status
- * page
- * limit
- * sortBy
- * sortOrder
- *
- * Examples:
- *
- * /api/v1/risks
- *
- * /api/v1/risks?projectId=PROJECT_ID
- *
- * /api/v1/risks?status=in_progress
- *
- * /api/v1/risks?search=R-001
- */
 router.get(
   "/",
+
+  permissionMiddleware(
+    "risks.view"
+  ),
+
   validateRiskListQuery,
+
   getRisks
 );
 
-/**
- * POST /api/v1/risks
- *
- * Naya Risk Register record create karega.
- *
- * Body:
- *
- * {
- *   "projectId": "PROJECT_MONGODB_ID",
- *   "serialNo": "01",
- *   "riskRegisterId": "R-001",
- *   "description": "DB mein exposed wiring observed hui."
- * }
- *
- * Controller/service:
- *
- * - project fetch karega
- * - projectCode fetch karega
- * - status automatically in_progress rakhega
- */
+/* =========================================================
+   CREATE RISK
+
+   Required permission:
+
+   risks.create
+
+   POST /api/v1/risks
+
+   Accepted fields:
+
+   projectId
+   description
+   riskRegisterId optional
+
+   Backend automatically:
+
+   - selected Project fetch karega
+   - Project Reference Number fetch karega
+   - project-wise serialNo generate karega
+   - status in_progress rakhega
+   ========================================================= */
+
 router.post(
   "/",
-  adminOnly,
+
+  permissionMiddleware(
+    "risks.create"
+  ),
+
   validateCreateRisk,
+
   createRisk
 );
 
 /* =========================================================
-   STATUS ACTION ROUTES
+   MARK COMPLETE
 
-   In routes ko /:riskId se pehle define karna zaroori nahi,
-   kyun ke in mein additional path segment hai. Phir bhi
-   clarity ke liye single-risk CRUD se pehle rakhi hain.
+   Required permission:
+
+   risks.complete
+
+   PATCH /api/v1/risks/:riskId/complete
+
+   Minimum Evidence:
+
+   - one Before image
+   - one After image
    ========================================================= */
 
-/**
- * PATCH /api/v1/risks/:riskId/complete
- *
- * Frontend ka Mark Complete button is endpoint ko call karega.
- *
- * Body required nahi hai.
- *
- * Complete hone ke liye:
- *
- * - minimum one Before Evidence image
- * - minimum one After Evidence image
- *
- * Evidence separate Evidence API se fetch hogi.
- */
 router.patch(
   "/:riskId/complete",
-  adminOnly,
+
+  permissionMiddleware(
+    "risks.complete"
+  ),
+
   validateRiskIdParam,
+
   markRiskComplete
 );
 
-/**
- * PATCH /api/v1/risks/:riskId/in-progress
- *
- * Complete risk ko dobara In Progress karne ke liye.
- *
- * Body required nahi hai.
- */
+/* =========================================================
+   MOVE TO IN PROGRESS
+
+   Required permission:
+
+   risks.complete
+
+   Yeh completion workflow ka reverse action hai, is liye
+   same permission use hogi.
+
+   PATCH /api/v1/risks/:riskId/in-progress
+   ========================================================= */
+
 router.patch(
   "/:riskId/in-progress",
-  adminOnly,
+
+  permissionMiddleware(
+    "risks.complete"
+  ),
+
   validateRiskIdParam,
+
   markRiskInProgress
 );
 
-/**
- * PATCH /api/v1/risks/:riskId/status
- *
- * Generic status endpoint.
- *
- * Body:
- *
- * {
- *   "status": "in_progress"
- * }
- *
- * Or:
- *
- * {
- *   "status": "complete"
- * }
- *
- * Supported values:
- *
- * in_progress
- * complete
- */
+/* =========================================================
+   GENERIC STATUS UPDATE
+
+   Required permission:
+
+   risks.complete
+
+   PATCH /api/v1/risks/:riskId/status
+
+   Supported statuses:
+
+   in_progress
+   complete
+   ========================================================= */
+
 router.patch(
   "/:riskId/status",
-  adminOnly,
+
+  permissionMiddleware(
+    "risks.complete"
+  ),
+
   validateRiskIdParam,
   validateRiskStatusUpdate,
+
   updateRiskStatus
 );
 
 /* =========================================================
-   SINGLE RISK CRUD ROUTES
+   GET SINGLE RISK
+
+   Required permission:
+
+   risks.view
+
+   GET /api/v1/risks/:riskId
+
+   Response:
+
+   - Risk details
+   - Before Evidence
+   - After Evidence
+   - completion eligibility
    ========================================================= */
 
-/**
- * GET /api/v1/risks/:riskId
- *
- * Risk ki complete details retrieve karega:
- *
- * - projectId
- * - projectCode
- * - serialNo
- * - riskRegisterId
- * - description
- * - status
- * - Before Evidence records
- * - After Evidence records
- * - canMarkComplete
- */
 router.get(
   "/:riskId",
+
+  permissionMiddleware(
+    "risks.view"
+  ),
+
   validateRiskIdParam,
+
   getRiskById
 );
 
-/**
- * PATCH /api/v1/risks/:riskId
- *
- * Risk ki main information update karega.
- *
- * Body:
- *
- * {
- *   "projectId": "PROJECT_MONGODB_ID",
- *   "serialNo": "01",
- *   "riskRegisterId": "R-001",
- *   "description": "Updated risk description."
- * }
- *
- * projectCode selected project se automatically fetch hoga.
- *
- * Status aur Evidence is endpoint se update nahi honge.
- */
+/* =========================================================
+   UPDATE RISK
+
+   Required permission:
+
+   risks.update
+
+   PATCH /api/v1/risks/:riskId
+
+   Editable fields:
+
+   description
+   riskRegisterId optional
+
+   Protected fields:
+
+   projectId
+   projectCode
+   serialNo
+   status
+
+   Status ke liye dedicated endpoints use hongi.
+   ========================================================= */
+
 router.patch(
   "/:riskId",
-  adminOnly,
+
+  permissionMiddleware(
+    "risks.update"
+  ),
+
   validateRiskIdParam,
   validateUpdateRisk,
+
   updateRisk
 );
 
-/**
- * DELETE /api/v1/risks/:riskId
- *
- * Deletes:
- *
- * - Risk record
- * - Before Evidence database records
- * - After Evidence database records
- * - Before Evidence image files
- * - After Evidence image files
- */
+/* =========================================================
+   DELETE RISK
+
+   Required permission:
+
+   risks.delete
+
+   DELETE /api/v1/risks/:riskId
+
+   Backend deletes:
+
+   - Risk record
+   - Before Evidence records
+   - After Evidence records
+   - related local image files
+   ========================================================= */
+
 router.delete(
   "/:riskId",
-  adminOnly,
+
+  permissionMiddleware(
+    "risks.delete"
+  ),
+
   validateRiskIdParam,
+
   deleteRisk
 );
 

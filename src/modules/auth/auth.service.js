@@ -3,519 +3,1170 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
 import User from "../../models/user/user.model.js";
+import Role from "../../models/roles/role.model.js";
 
 import {
-    generateAccessToken,
-    generateRefreshToken,
+  generateAccessToken,
+  generateRefreshToken,
 } from "../../utils/generateToken.js";
 
 import sendEmail from "../../services/email.service.js";
+
 import passwordResetTemplate from "../../templates/email/passwordReset.template.js";
-import emailVerificationTemplate from "../../templates/email/emailVerification.template.js";
 
+/* =========================================================
+   ERROR HELPER
+   ========================================================= */
 
-const getSafeUserData = (user) => {
-    return {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        countryCode: user.countryCode,
-        role: user.role,
-        avatar: user.avatar,
-        provider: user.provider,
-        isVerified: user.isVerified,
-        isPhoneVerified: user.isPhoneVerified,
-        is2FAEnabled: user.is2FAEnabled,
-        status: user.status,
-    };
+const createServiceError = (
+  message,
+  statusCode = 500
+) => {
+  const error = new Error(
+    message
+  );
+
+  error.statusCode =
+    statusCode;
+
+  return error;
 };
 
+/* =========================================================
+   BASIC NORMALIZERS
+   ========================================================= */
 
-const hashToken = (token) => {
-    return crypto
-        .createHash("sha256")
-        .update(token)
-        .digest("hex");
-};
+const normalizeRoleSlug = (
+  value
+) => {
+  if (
+    typeof value !==
+    "string"
+  ) {
+    return "";
+  }
 
-
-const sendVerificationEmailToUser = async (user) => {
-    const verificationToken = crypto.randomBytes(32).toString("hex");
-    const hashedVerificationToken = hashToken(verificationToken);
-
-    const expiresInMinutes = Number(
-        process.env.EMAIL_VERIFICATION_EXPIRES_IN_MINUTES || 30
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]+/g,
+      "_"
+    )
+    .replace(
+      /^_+|_+$/g,
+      ""
     );
-
-    user.emailVerificationToken = hashedVerificationToken;
-    user.emailVerificationExpires = Date.now() + expiresInMinutes * 60 * 1000;
-
-    await user.save();
-
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    const verificationUrl = `${frontendUrl}/verify-email/${verificationToken}`;
-
-    const emailTemplate = emailVerificationTemplate({
-        name: user.name,
-        verificationUrl,
-        verificationToken,
-        expiresInMinutes,
-    });
-
-    await sendEmail({
-        to: user.email,
-        subject: emailTemplate.subject,
-        text: emailTemplate.text,
-        html: emailTemplate.html,
-    });
-
-    return {
-        verificationToken,
-        verificationUrl,
-    };
 };
 
+/* =========================================================
+   ROLE ACCESS RESOLVER
 
-export const registerService = async (userData) => {
-    const { name, email, password, phone, countryCode } = userData;
+   System roles:
 
-    const normalizedEmail = email.toLowerCase().trim();
+   admin
+   super_admin
 
-    const existingUser = await User.findOne({ email: normalizedEmail });
+   Existing full access is preserved.
 
-    if (existingUser) {
-        const error = new Error("Email already exists");
-        error.statusCode = 400;
-        throw error;
+   Custom roles are resolved from the Role collection.
+   ========================================================= */
+
+const resolveUserRoleAccess =
+  async (
+    user,
+    {
+      requireAssignedRole = false,
+    } = {}
+  ) => {
+    const roleSlug =
+      normalizeRoleSlug(
+        user?.role
+      ) || "user";
+
+    /* =====================================================
+       NEWLY REGISTERED / UNASSIGNED USER
+       ===================================================== */
+
+    if (
+      roleSlug ===
+      "user"
+    ) {
+      if (
+        requireAssignedRole
+      ) {
+        throw createServiceError(
+          "Your account is registered, but no dashboard Role has been assigned yet. Please contact an Administrator.",
+          403
+        );
+      }
+
+      return {
+        roleSlug:
+          "user",
+
+        roleDetails:
+          null,
+
+        permissions:
+          [],
+      };
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    /* =====================================================
+       SYSTEM ROLES
+       ===================================================== */
 
-    const user = await User.create({
-        name: name.trim(),
-        email: normalizedEmail,
-        password: hashedPassword,
-        phone: phone || "",
-        countryCode: countryCode || "",
-        provider: "local",
-        isVerified: false,
-    });
+    if (
+      roleSlug ===
+        "admin" ||
+      roleSlug ===
+        "super_admin"
+    ) {
+      return {
+        roleSlug,
 
-    let emailVerification = {
-        sent: false,
-    };
+        roleDetails: {
+          name:
+            roleSlug ===
+            "super_admin"
+              ? "Super Admin"
+              : "Admin",
 
-    try {
-        const verificationData = await sendVerificationEmailToUser(user);
+          slug:
+            roleSlug,
 
-        emailVerification.sent = true;
+          description:
+            roleSlug ===
+            "super_admin"
+              ? "Complete system access."
+              : "Administrative system access.",
 
-        if (process.env.NODE_ENV === "development") {
-            emailVerification.verificationToken = verificationData.verificationToken;
-            emailVerification.verificationUrl = verificationData.verificationUrl;
-        }
-    } catch (error) {
-        emailVerification.sent = false;
+          permissions: [
+            "*",
+          ],
 
-        if (process.env.NODE_ENV === "development") {
-            emailVerification.error = error.message;
-        }
+          isSystemRole:
+            true,
+
+          status:
+            "active",
+        },
+
+        permissions: [
+          "*",
+        ],
+      };
+    }
+
+    /* =====================================================
+       DYNAMIC CUSTOM ROLE
+       ===================================================== */
+
+    const role =
+      await Role.findOne({
+        slug:
+          roleSlug,
+      })
+        .select(
+          "name slug description permissions isSystemRole status"
+        )
+        .lean();
+
+    if (!role) {
+      if (
+        requireAssignedRole
+      ) {
+        throw createServiceError(
+          "Your assigned Role no longer exists. Please contact an Administrator.",
+          403
+        );
+      }
+
+      return {
+        roleSlug,
+
+        roleDetails:
+          null,
+
+        permissions:
+          [],
+      };
+    }
+
+    if (
+      role.status !==
+      "active"
+    ) {
+      if (
+        requireAssignedRole
+      ) {
+        throw createServiceError(
+          "Your assigned Role is inactive. Please contact an Administrator.",
+          403
+        );
+      }
+
+      return {
+        roleSlug,
+
+        roleDetails:
+          role,
+
+        permissions:
+          [],
+      };
     }
 
     return {
-        success: true,
-        message: emailVerification.sent
-            ? "User registered successfully. Please verify your email before login."
-            : "User registered successfully, but verification email could not be sent.",
-        emailVerification,
-        user: getSafeUserData(user),
+      roleSlug,
+
+      roleDetails:
+        role,
+
+      permissions:
+        Array.isArray(
+          role.permissions
+        )
+          ? role.permissions
+          : [],
     };
+  };
+
+/* =========================================================
+   SAFE USER RESPONSE
+   ========================================================= */
+
+const getSafeUserData = (
+  user,
+  roleAccess
+) => {
+  const roleSlug =
+    roleAccess?.roleSlug ||
+    normalizeRoleSlug(
+      user?.role
+    ) ||
+    "user";
+
+  return {
+    id:
+      user._id,
+
+    name:
+      user.name,
+
+    email:
+      user.email,
+
+    phone:
+      user.phone,
+
+    countryCode:
+      user.countryCode,
+
+    role:
+      roleSlug,
+
+    roleDetails:
+      roleAccess?.roleDetails ||
+      null,
+
+    permissions:
+      roleAccess?.permissions ||
+      [],
+
+    roleAssignedBy:
+      user.roleAssignedBy ||
+      null,
+
+    roleAssignedAt:
+      user.roleAssignedAt ||
+      null,
+
+    avatar:
+      user.avatar,
+
+    provider:
+      user.provider,
+
+    /*
+      Kept in API response for backward compatibility.
+
+      Email verification is no longer required for
+      Project Tracker authentication.
+    */
+    isVerified:
+      user.isVerified,
+
+    isPhoneVerified:
+      user.isPhoneVerified,
+
+    is2FAEnabled:
+      user.is2FAEnabled,
+
+    status:
+      user.status,
+
+    createdAt:
+      user.createdAt,
+
+    updatedAt:
+      user.updatedAt,
+  };
 };
 
+/* =========================================================
+   TOKEN HASH
+   ========================================================= */
 
-export const loginService = async ({ email, password }) => {
-    const normalizedEmail = email.toLowerCase().trim();
+const hashToken = (
+  token
+) => {
+  return crypto
+    .createHash(
+      "sha256"
+    )
+    .update(
+      token
+    )
+    .digest(
+      "hex"
+    );
+};
 
-    const user = await User.findOne({ email: normalizedEmail });
+/* =========================================================
+   REGISTER
+
+   Email verification is disabled.
+
+   New users are treated as verified immediately.
+
+   New user remains:
+
+   role: user
+
+   Administrator still assigns a dashboard Role before the
+   user can access the protected Project Tracker dashboard.
+   ========================================================= */
+
+export const registerService =
+  async (
+    userData
+  ) => {
+    const {
+      name,
+      email,
+      password,
+      phone,
+      countryCode,
+    } = userData;
+
+    const normalizedEmail =
+      email
+        .toLowerCase()
+        .trim();
+
+    const existingUser =
+      await User.findOne({
+        email:
+          normalizedEmail,
+      });
+
+    if (
+      existingUser
+    ) {
+      throw createServiceError(
+        "Email already exists.",
+        409
+      );
+    }
+
+    const hashedPassword =
+      await bcrypt.hash(
+        password,
+        10
+      );
+
+    const user =
+      await User.create({
+        name:
+          name.trim(),
+
+        email:
+          normalizedEmail,
+
+        password:
+          hashedPassword,
+
+        phone:
+          phone || "",
+
+        countryCode:
+          countryCode || "",
+
+        role:
+          "user",
+
+        provider:
+          "local",
+
+        /*
+          No email verification step is required.
+
+          New local users are considered verified
+          immediately.
+        */
+        isVerified:
+          true,
+
+        /*
+          Clear legacy verification fields.
+        */
+        emailVerificationToken:
+          "",
+
+        emailVerificationExpires:
+          null,
+      });
+
+    const roleAccess =
+      await resolveUserRoleAccess(
+        user
+      );
+
+    return {
+      success:
+        true,
+
+      message:
+        "User registered successfully. An Administrator must assign a dashboard Role before login.",
+
+      /*
+        Kept so existing frontend code expecting this
+        property does not break.
+      */
+      emailVerification: {
+        required:
+          false,
+
+        sent:
+          false,
+      },
+
+      user:
+        getSafeUserData(
+          user,
+          roleAccess
+        ),
+    };
+  };
+
+/* =========================================================
+   LOGIN
+
+   Requirements:
+
+   active account
+   local provider
+   correct password
+   assigned active dashboard Role
+
+   Email verification is NOT required.
+   ========================================================= */
+
+export const loginService =
+  async ({
+    email,
+    password,
+  }) => {
+    const normalizedEmail =
+      email
+        .toLowerCase()
+        .trim();
+
+    const user =
+      await User.findOne({
+        email:
+          normalizedEmail,
+      });
 
     if (!user) {
-        const error = new Error("Invalid email or password");
-        error.statusCode = 401;
-        throw error;
+      throw createServiceError(
+        "Invalid email or password.",
+        401
+      );
     }
 
-    if (user.status === "blocked") {
-        const error = new Error("Your account has been blocked");
-        error.statusCode = 403;
-        throw error;
+    /* =====================================================
+       ACCOUNT STATUS
+       ===================================================== */
+
+    if (
+      user.status ===
+      "blocked"
+    ) {
+      throw createServiceError(
+        "Your account has been blocked.",
+        403
+      );
     }
 
-    if (user.status === "inactive") {
-        const error = new Error("Your account is inactive");
-        error.statusCode = 403;
-        throw error;
+    if (
+      user.status ===
+      "inactive"
+    ) {
+      throw createServiceError(
+        "Your account is inactive.",
+        403
+      );
     }
 
-    if (user.provider !== "local") {
-        const error = new Error(`Please login with ${user.provider}`);
-        error.statusCode = 400;
-        throw error;
+    if (
+      user.status !==
+      "active"
+    ) {
+      throw createServiceError(
+        "Your account is not active.",
+        403
+      );
     }
 
-    if (!user.isVerified) {
-        const error = new Error("Please verify your email before login");
-        error.statusCode = 403;
-        throw error;
+    /* =====================================================
+       PROVIDER
+       ===================================================== */
+
+    if (
+      user.provider !==
+      "local"
+    ) {
+      throw createServiceError(
+        `Please login with ${user.provider}.`,
+        400
+      );
     }
 
-    const isPasswordMatched = await bcrypt.compare(
+    /* =====================================================
+       EMAIL VERIFICATION
+
+       Intentionally not checked.
+
+       Both existing isVerified:false users and newly
+       registered users may continue to login.
+       ===================================================== */
+
+    /* =====================================================
+       PASSWORD
+       ===================================================== */
+
+    const isPasswordMatched =
+      await bcrypt.compare(
         password,
         user.password
-    );
+      );
 
-    if (!isPasswordMatched) {
-        const error = new Error("Invalid email or password");
-        error.statusCode = 401;
-        throw error;
+    if (
+      !isPasswordMatched
+    ) {
+      throw createServiceError(
+        "Invalid email or password.",
+        401
+      );
     }
 
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
+    /* =====================================================
+       ROLE ACCESS
 
-    user.refreshToken = refreshToken;
+       User receives tokens only after an active dashboard
+       Role has been assigned.
+       ===================================================== */
+
+    const roleAccess =
+      await resolveUserRoleAccess(
+        user,
+        {
+          requireAssignedRole:
+            true,
+        }
+      );
+
+    /* =====================================================
+       TOKENS
+       ===================================================== */
+
+    const accessToken =
+      generateAccessToken(
+        user._id
+      );
+
+    const refreshToken =
+      generateRefreshToken(
+        user._id
+      );
+
+    user.refreshToken =
+      refreshToken;
+
     await user.save();
 
     return {
-        success: true,
-        message: "Login successful",
-        accessToken,
-        refreshToken,
-        user: getSafeUserData(user),
+      success:
+        true,
+
+      message:
+        "Login successful.",
+
+      accessToken,
+
+      refreshToken,
+
+      user:
+        getSafeUserData(
+          user,
+          roleAccess
+        ),
     };
-};
+  };
 
+/* =========================================================
+   PROFILE
+   ========================================================= */
 
-export const profileService = async (user) => {
+export const profileService =
+  async (
+    user
+  ) => {
+    const roleAccess =
+      await resolveUserRoleAccess(
+        user
+      );
+
     return {
-        success: true,
-        message: "Profile fetched successfully",
-        user: getSafeUserData(user),
+      success:
+        true,
+
+      message:
+        "Profile fetched successfully.",
+
+      user:
+        getSafeUserData(
+          user,
+          roleAccess
+        ),
     };
-};
+  };
 
+/* =========================================================
+   LOGOUT
+   ========================================================= */
 
-export const logoutService = async (userId) => {
-    const user = await User.findById(userId);
+export const logoutService =
+  async (
+    userId
+  ) => {
+    const user =
+      await User.findById(
+        userId
+      );
 
     if (!user) {
-        const error = new Error("User not found");
-        error.statusCode = 404;
-        throw error;
+      throw createServiceError(
+        "User not found.",
+        404
+      );
     }
 
-    user.refreshToken = "";
+    user.refreshToken =
+      "";
+
     await user.save();
 
     return {
-        success: true,
-        message: "Logout successful",
+      success:
+        true,
+
+      message:
+        "Logout successful.",
     };
-};
+  };
 
+/* =========================================================
+   REFRESH TOKEN
 
-export const refreshTokenService = async (refreshToken) => {
+   Assigned Role is rechecked on every refresh.
+
+   Email verification is NOT required.
+   ========================================================= */
+
+export const refreshTokenService =
+  async (
+    refreshToken
+  ) => {
     let decoded;
 
     try {
-        decoded = jwt.verify(
-            refreshToken,
-            process.env.JWT_REFRESH_SECRET
+      decoded =
+        jwt.verify(
+          refreshToken,
+          process.env
+            .JWT_REFRESH_SECRET
         );
-    } catch (error) {
-        const customError = new Error("Invalid or expired refresh token");
-        customError.statusCode = 401;
-        throw customError;
+    } catch {
+      throw createServiceError(
+        "Invalid or expired refresh token.",
+        401
+      );
     }
 
-    const user = await User.findById(decoded.userId);
+    if (
+      !decoded ||
+      typeof decoded !==
+        "object" ||
+      !decoded.userId
+    ) {
+      throw createServiceError(
+        "Invalid refresh token payload.",
+        401
+      );
+    }
+
+    const user =
+      await User.findById(
+        decoded.userId
+      );
 
     if (!user) {
-        const error = new Error("User not found");
-        error.statusCode = 401;
-        throw error;
+      throw createServiceError(
+        "User not found.",
+        401
+      );
     }
 
-    if (user.status !== "active") {
-        const error = new Error("User account is not active");
-        error.statusCode = 403;
-        throw error;
+    /* =====================================================
+       ACCOUNT STATUS
+       ===================================================== */
+
+    if (
+      user.status !==
+      "active"
+    ) {
+      throw createServiceError(
+        "User account is not active.",
+        403
+      );
     }
 
-    if (!user.isVerified) {
-        const error = new Error("Please verify your email before refreshing token");
-        error.statusCode = 403;
-        throw error;
+    /* =====================================================
+       EMAIL VERIFICATION
+
+       Intentionally not checked.
+       ===================================================== */
+
+    /* =====================================================
+       STORED REFRESH TOKEN
+       ===================================================== */
+
+    if (
+      !user.refreshToken ||
+      user.refreshToken !==
+        refreshToken
+    ) {
+      throw createServiceError(
+        "Refresh token is invalid or already used.",
+        401
+      );
     }
 
-    if (!user.refreshToken || user.refreshToken !== refreshToken) {
-        const error = new Error("Refresh token is invalid or already used");
-        error.statusCode = 401;
-        throw error;
-    }
+    /* =====================================================
+       ROLE ACCESS
+       ===================================================== */
 
-    const newAccessToken = generateAccessToken(user._id);
-    const newRefreshToken = generateRefreshToken(user._id);
+    const roleAccess =
+      await resolveUserRoleAccess(
+        user,
+        {
+          requireAssignedRole:
+            true,
+        }
+      );
 
-    user.refreshToken = newRefreshToken;
+    /* =====================================================
+       TOKEN ROTATION
+       ===================================================== */
+
+    const newAccessToken =
+      generateAccessToken(
+        user._id
+      );
+
+    const newRefreshToken =
+      generateRefreshToken(
+        user._id
+      );
+
+    user.refreshToken =
+      newRefreshToken;
+
     await user.save();
 
     return {
-        success: true,
-        message: "Token refreshed successfully",
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
-        user: getSafeUserData(user),
+      success:
+        true,
+
+      message:
+        "Token refreshed successfully.",
+
+      accessToken:
+        newAccessToken,
+
+      refreshToken:
+        newRefreshToken,
+
+      user:
+        getSafeUserData(
+          user,
+          roleAccess
+        ),
     };
-};
+  };
 
+/* =========================================================
+   CHANGE PASSWORD
+   ========================================================= */
 
-export const changePasswordService = async (
+export const changePasswordService =
+  async (
     userId,
     oldPassword,
     newPassword
-) => {
-    const user = await User.findById(userId);
+  ) => {
+    const user =
+      await User.findById(
+        userId
+      );
 
     if (!user) {
-        const error = new Error("User not found");
-        error.statusCode = 404;
-        throw error;
+      throw createServiceError(
+        "User not found.",
+        404
+      );
     }
 
-    if (user.provider !== "local") {
-        const error = new Error("Password change is only available for local accounts");
-        error.statusCode = 400;
-        throw error;
+    if (
+      user.provider !==
+      "local"
+    ) {
+      throw createServiceError(
+        "Password change is only available for local accounts.",
+        400
+      );
     }
 
-    const isPasswordMatched = await bcrypt.compare(
+    const isPasswordMatched =
+      await bcrypt.compare(
         oldPassword,
         user.password
-    );
+      );
 
-    if (!isPasswordMatched) {
-        const error = new Error("Old password is incorrect");
-        error.statusCode = 400;
-        throw error;
+    if (
+      !isPasswordMatched
+    ) {
+      throw createServiceError(
+        "Old password is incorrect.",
+        400
+      );
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword =
+      await bcrypt.hash(
+        newPassword,
+        10
+      );
 
-    user.password = hashedPassword;
-    user.refreshToken = "";
+    user.password =
+      hashedPassword;
+
+    /*
+      Existing sessions become invalid after password change.
+    */
+    user.refreshToken =
+      "";
 
     await user.save();
 
     return {
-        success: true,
-        message: "Password changed successfully. Please login again.",
+      success:
+        true,
+
+      message:
+        "Password changed successfully. Please login again.",
     };
-};
+  };
 
+/* =========================================================
+   FORGOT PASSWORD
+   ========================================================= */
 
-export const forgotPasswordService = async (email) => {
-    const normalizedEmail = email.toLowerCase().trim();
+export const forgotPasswordService =
+  async (
+    email
+  ) => {
+    const normalizedEmail =
+      email
+        .toLowerCase()
+        .trim();
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const user =
+      await User.findOne({
+        email:
+          normalizedEmail,
+      });
 
+    /*
+      Do not expose whether the email address exists.
+    */
     if (!user) {
-        return {
-            success: true,
-            message: "If an account exists with this email, a password reset link has been sent.",
-        };
+      return {
+        success:
+          true,
+
+        message:
+          "If an account exists with this email, a password reset link has been sent.",
+      };
     }
 
-    if (user.provider !== "local") {
-        const error = new Error(`Password reset is only available for local accounts. Please login with ${user.provider}.`);
-        error.statusCode = 400;
-        throw error;
+    if (
+      user.provider !==
+      "local"
+    ) {
+      throw createServiceError(
+        `Password reset is only available for local accounts. Please login with ${user.provider}.`,
+        400
+      );
     }
 
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    const hashedResetToken = hashToken(resetToken);
+    const resetToken =
+      crypto
+        .randomBytes(32)
+        .toString(
+          "hex"
+        );
 
-    const expiresInMinutes = Number(
-        process.env.PASSWORD_RESET_EXPIRES_IN_MINUTES || 10
-    );
+    const hashedResetToken =
+      hashToken(
+        resetToken
+      );
 
-    user.passwordResetToken = hashedResetToken;
-    user.passwordResetExpires = Date.now() + expiresInMinutes * 60 * 1000;
+    const expiresInMinutes =
+      Number(
+        process.env
+          .PASSWORD_RESET_EXPIRES_IN_MINUTES ||
+          10
+      );
+
+    user.passwordResetToken =
+      hashedResetToken;
+
+    user.passwordResetExpires =
+      Date.now() +
+      expiresInMinutes *
+        60 *
+        1000;
 
     await user.save();
 
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
+    const frontendUrl =
+      process.env
+        .FRONTEND_URL ||
+      "http://localhost:5173";
 
-    const emailTemplate = passwordResetTemplate({
-        name: user.name,
+    const resetUrl =
+      `${frontendUrl}/reset-password/${resetToken}`;
+
+    const emailTemplate =
+      passwordResetTemplate({
+        name:
+          user.name,
+
         resetUrl,
+
         resetToken,
+
         expiresInMinutes,
-    });
+      });
 
     try {
-        await sendEmail({
-            to: user.email,
-            subject: emailTemplate.subject,
-            text: emailTemplate.text,
-            html: emailTemplate.html,
-        });
-    } catch (error) {
-        user.passwordResetToken = "";
-        user.passwordResetExpires = null;
+      await sendEmail({
+        to:
+          user.email,
 
-        await user.save();
+        subject:
+          emailTemplate.subject,
 
-        const emailError = new Error("Password reset email could not be sent");
-        emailError.statusCode = 500;
-        throw emailError;
+        text:
+          emailTemplate.text,
+
+        html:
+          emailTemplate.html,
+      });
+    } catch {
+      /*
+        Reset invalidation if sending fails.
+      */
+      user.passwordResetToken =
+        "";
+
+      user.passwordResetExpires =
+        null;
+
+      await user.save();
+
+      throw createServiceError(
+        "Password reset email could not be sent.",
+        500
+      );
     }
 
     const response = {
-        success: true,
-        message: "Password reset email sent successfully",
+      success:
+        true,
+
+      message:
+        "Password reset email sent successfully.",
     };
 
-    if (process.env.NODE_ENV === "development") {
-        response.resetToken = resetToken;
-        response.resetUrl = resetUrl;
+    if (
+      process.env
+        .NODE_ENV ===
+      "development"
+    ) {
+      response.resetToken =
+        resetToken;
+
+      response.resetUrl =
+        resetUrl;
     }
 
     return response;
-};
+  };
 
+/* =========================================================
+   RESET PASSWORD
+   ========================================================= */
 
-export const resetPasswordService = async (token, newPassword) => {
+export const resetPasswordService =
+  async (
+    token,
+    newPassword
+  ) => {
     if (!token) {
-        const error = new Error("Reset token is required");
-        error.statusCode = 400;
-        throw error;
+      throw createServiceError(
+        "Reset token is required.",
+        400
+      );
     }
 
-    const hashedResetToken = hashToken(token);
+    const hashedResetToken =
+      hashToken(
+        token
+      );
 
-    const user = await User.findOne({
-        passwordResetToken: hashedResetToken,
-        passwordResetExpires: { $gt: Date.now() },
-    });
+    const user =
+      await User.findOne({
+        passwordResetToken:
+          hashedResetToken,
+
+        passwordResetExpires: {
+          $gt:
+            Date.now(),
+        },
+      });
 
     if (!user) {
-        const error = new Error("Invalid or expired reset token");
-        error.statusCode = 400;
-        throw error;
+      throw createServiceError(
+        "Invalid or expired reset token.",
+        400
+      );
     }
 
-    if (user.provider !== "local") {
-        const error = new Error("Password reset is only available for local accounts");
-        error.statusCode = 400;
-        throw error;
+    if (
+      user.provider !==
+      "local"
+    ) {
+      throw createServiceError(
+        "Password reset is only available for local accounts.",
+        400
+      );
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword =
+      await bcrypt.hash(
+        newPassword,
+        10
+      );
 
-    user.password = hashedPassword;
-    user.passwordResetToken = "";
-    user.passwordResetExpires = null;
-    user.refreshToken = "";
+    user.password =
+      hashedPassword;
+
+    user.passwordResetToken =
+      "";
+
+    user.passwordResetExpires =
+      null;
+
+    /*
+      Force existing refresh token/session to expire.
+    */
+    user.refreshToken =
+      "";
 
     await user.save();
 
     return {
-        success: true,
-        message: "Password reset successfully. Please login with your new password.",
+      success:
+        true,
+
+      message:
+        "Password reset successfully. Please login with your new password.",
     };
-};
+  };
 
+/* =========================================================
+   VERIFY EMAIL
 
-export const verifyEmailService = async (token) => {
-    if (!token) {
-        const error = new Error("Verification token is required");
-        error.statusCode = 400;
-        throw error;
-    }
+   Email verification has been disabled for Project Tracker.
 
-    const hashedVerificationToken = hashToken(token);
+   This service remains exported only so older frontend/API
+   references do not break.
+   ========================================================= */
 
-    const user = await User.findOne({
-        emailVerificationToken: hashedVerificationToken,
-        emailVerificationExpires: { $gt: Date.now() },
-    });
-
-    if (!user) {
-        const error = new Error("Invalid or expired verification token");
-        error.statusCode = 400;
-        throw error;
-    }
-
-    user.isVerified = true;
-    user.emailVerificationToken = "";
-    user.emailVerificationExpires = null;
-
-    await user.save();
-
+export const verifyEmailService =
+  async () => {
     return {
-        success: true,
-        message: "Email verified successfully",
-        user: getSafeUserData(user),
+      success:
+        true,
+
+      message:
+        "Email verification is not required for Project Tracker.",
     };
-};
+  };
 
+/* =========================================================
+   RESEND VERIFICATION EMAIL
 
-export const resendVerificationEmailService = async (email) => {
-    const normalizedEmail = email.toLowerCase().trim();
+   Email verification has been disabled.
 
-    const user = await User.findOne({ email: normalizedEmail });
+   No verification email is sent.
 
-    if (!user) {
-        return {
-            success: true,
-            message: "If an account exists with this email, a verification email has been sent.",
-        };
-    }
+   Kept only for backward API compatibility.
+   ========================================================= */
 
-    if (user.provider !== "local") {
-        const error = new Error(`Email verification is only available for local accounts. Please login with ${user.provider}.`);
-        error.statusCode = 400;
-        throw error;
-    }
+export const resendVerificationEmailService =
+  async () => {
+    return {
+      success:
+        true,
 
-    if (user.isVerified) {
-        return {
-            success: true,
-            message: "Email is already verified",
-        };
-    }
-
-    let verificationData;
-
-    try {
-        verificationData = await sendVerificationEmailToUser(user);
-    } catch (error) {
-        const emailError = new Error("Verification email could not be sent");
-        emailError.statusCode = 500;
-        throw emailError;
-    }
-
-    const response = {
-        success: true,
-        message: "Verification email sent successfully",
+      message:
+        "Email verification is not required for Project Tracker.",
     };
-
-    if (process.env.NODE_ENV === "development") {
-        response.verificationToken = verificationData.verificationToken;
-        response.verificationUrl = verificationData.verificationUrl;
-    }
-
-    return response;
-};
+  };

@@ -25,10 +25,14 @@ import {
    ========================================================= */
 
 const currentFilePath =
-  fileURLToPath(import.meta.url);
+  fileURLToPath(
+    import.meta.url
+  );
 
 const currentDirectory =
-  path.dirname(currentFilePath);
+  path.dirname(
+    currentFilePath
+  );
 
 const backendDirectory =
   path.resolve(
@@ -59,7 +63,9 @@ const sendSuccessResponse = (
   message,
   data = {}
 ) => {
-  return res.status(statusCode).json({
+  return res.status(
+    statusCode
+  ).json({
     success: true,
     message,
     data,
@@ -74,10 +80,16 @@ const createHttpError = (
   statusCode,
   message
 ) => {
-  const error = new Error(message);
+  const error =
+    new Error(
+      message
+    );
 
-  error.statusCode = statusCode;
-  error.status = statusCode;
+  error.statusCode =
+    statusCode;
+
+  error.status =
+    statusCode;
 
   return error;
 };
@@ -86,18 +98,27 @@ const createHttpError = (
    REQUEST FILE HELPER
    ========================================================= */
 
-const getRequestFiles = (req) => {
-  if (Array.isArray(req.files)) {
+const getRequestFiles = (
+  req
+) => {
+  if (
+    Array.isArray(
+      req.files
+    )
+  ) {
     return req.files;
   }
 
   if (req.file) {
-    return [req.file];
+    return [
+      req.file,
+    ];
   }
 
   if (
     req.files &&
-    typeof req.files === "object"
+    typeof req.files ===
+      "object"
   ) {
     return Object.values(
       req.files
@@ -114,7 +135,11 @@ const getRequestFiles = (req) => {
 const normalizeImagePaths = (
   imagePaths
 ) => {
-  if (!Array.isArray(imagePaths)) {
+  if (
+    !Array.isArray(
+      imagePaths
+    )
+  ) {
     return [];
   }
 
@@ -127,10 +152,14 @@ const normalizeImagePaths = (
               "string" &&
             imagePath.trim()
         )
-        .map((imagePath) =>
-          imagePath
-            .trim()
-            .replaceAll("\\", "/")
+        .map(
+          (imagePath) =>
+            imagePath
+              .trim()
+              .replaceAll(
+                "\\",
+                "/"
+              )
         )
     ),
   ];
@@ -139,11 +168,11 @@ const normalizeImagePaths = (
 /* =========================================================
    CONVERT PHYSICAL PATH TO PUBLIC PATH
 
-   Physical:
+   Physical path:
 
    backend/public/uploads/risks/before/image.jpg
 
-   Database:
+   Database path:
 
    /uploads/risks/before/image.jpg
    ========================================================= */
@@ -152,7 +181,8 @@ const convertToPublicImagePath = (
   filePath
 ) => {
   if (
-    typeof filePath !== "string" ||
+    typeof filePath !==
+      "string" ||
     !filePath.trim()
   ) {
     return "";
@@ -188,7 +218,9 @@ const convertToPublicImagePath = (
       relativeFilePath
     );
 
-  if (isOutsidePublicDirectory) {
+  if (
+    isOutsidePublicDirectory
+  ) {
     return "";
   }
 
@@ -199,32 +231,59 @@ const convertToPublicImagePath = (
 };
 
 /* =========================================================
-   GET UPLOADED IMAGE PATHS
+   GET ALL UPLOADED PUBLIC IMAGE PATHS
+
+   Request ke tamam uploaded files ko public paths mein
+   convert karta hai.
+
+   Failed request cleanup mein use hoga.
+   ========================================================= */
+
+const getAllUploadedImagePaths = (
+  req
+) => {
+  const files =
+    getRequestFiles(
+      req
+    );
+
+  const imagePaths =
+    files
+      .map(
+        (file) =>
+          convertToPublicImagePath(
+            file?.path
+          )
+      )
+      .filter(
+        Boolean
+      );
+
+  return normalizeImagePaths(
+    imagePaths
+  );
+};
+
+/* =========================================================
+   GET VALID UPLOADED IMAGE PATHS BY EVIDENCE TYPE
    ========================================================= */
 
 const getUploadedImagePaths = (
   req,
   evidenceType
 ) => {
-  const files =
-    getRequestFiles(req);
-
   const expectedFolder =
     `/uploads/risks/${evidenceType}/`;
 
   const imagePaths =
-    files
-      .map((file) =>
-        convertToPublicImagePath(
-          file?.path
+    getAllUploadedImagePaths(
+      req
+    ).filter(
+      (imagePath) =>
+        imagePath.startsWith(
+          expectedFolder
         )
-      )
-      .filter(
-        (imagePath) =>
-          imagePath.startsWith(
-            expectedFolder
-          )
-      );
+    );
 
   return normalizeImagePaths(
     imagePaths
@@ -234,15 +293,14 @@ const getUploadedImagePaths = (
 /* =========================================================
    DELETE PHYSICAL IMAGE
 
-   Sirf:
-
-   backend/public/uploads/risks/
-
-   ke andar wali file delete ho sakti hai.
+   Sirf backend/public/uploads/risks ke andar wali local
+   files physically delete ho sakti hain.
    ========================================================= */
 
 const deletePhysicalImage =
-  async (imagePath) => {
+  async (
+    imagePath
+  ) => {
     if (
       typeof imagePath !==
         "string" ||
@@ -253,6 +311,10 @@ const deletePhysicalImage =
 
     const normalizedImagePath =
       imagePath.trim();
+
+    /*
+      External URLs local files nahi hain.
+    */
 
     if (
       normalizedImagePath.startsWith(
@@ -267,8 +329,14 @@ const deletePhysicalImage =
 
     const cleanImagePath =
       normalizedImagePath
-        .replaceAll("\\", "/")
-        .replace(/^\/+/, "");
+        .replaceAll(
+          "\\",
+          "/"
+        )
+        .replace(
+          /^\/+/,
+          ""
+        );
 
     const absoluteImagePath =
       path.resolve(
@@ -291,7 +359,9 @@ const deletePhysicalImage =
         relativeRiskPath
       );
 
-    if (isOutsideRiskFolder) {
+    if (
+      isOutsideRiskFolder
+    ) {
       return false;
     }
 
@@ -303,7 +373,8 @@ const deletePhysicalImage =
       return true;
     } catch (error) {
       if (
-        error?.code === "ENOENT"
+        error?.code ===
+        "ENOENT"
       ) {
         return false;
       }
@@ -322,7 +393,9 @@ const deletePhysicalImage =
    ========================================================= */
 
 const deletePhysicalImages =
-  async (imagePaths = []) => {
+  async (
+    imagePaths = []
+  ) => {
     const normalizedImagePaths =
       normalizeImagePaths(
         imagePaths
@@ -353,7 +426,8 @@ const deletePhysicalImages =
         (result) =>
           result.status ===
             "fulfilled" &&
-          result.value === true
+          result.value ===
+            true
       ).length;
 
     return {
@@ -367,12 +441,15 @@ const deletePhysicalImages =
 /* =========================================================
    CLEAN FAILED UPLOAD
 
-   Database operation fail hone par newly uploaded image
-   files bhi delete hongi.
+   Database validation ya service operation fail hone par
+   current request ki newly uploaded physical image files
+   delete hongi.
    ========================================================= */
 
 const cleanupFailedUpload =
-  async (imagePaths) => {
+  async (
+    imagePaths
+  ) => {
     try {
       await deletePhysicalImages(
         imagePaths
@@ -392,7 +469,11 @@ const cleanupFailedUpload =
    ========================================================= */
 
 export const getRiskEvidences =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const evidence =
         await getRiskEvidencesService(
@@ -408,7 +489,9 @@ export const getRiskEvidences =
         }
       );
     } catch (error) {
-      return next(error);
+      return next(
+        error
+      );
     }
   };
 
@@ -419,7 +502,11 @@ export const getRiskEvidences =
    ========================================================= */
 
 export const getBeforeEvidences =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const result =
         await getEvidenceByTypeService(
@@ -434,7 +521,9 @@ export const getBeforeEvidences =
         result
       );
     } catch (error) {
-      return next(error);
+      return next(
+        error
+      );
     }
   };
 
@@ -445,7 +534,11 @@ export const getBeforeEvidences =
    ========================================================= */
 
 export const getAfterEvidences =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const result =
         await getEvidenceByTypeService(
@@ -460,7 +553,9 @@ export const getAfterEvidences =
         result
       );
     } catch (error) {
-      return next(error);
+      return next(
+        error
+      );
     }
   };
 
@@ -471,7 +566,11 @@ export const getAfterEvidences =
    ========================================================= */
 
 export const getEvidenceById =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const evidence =
         await getEvidenceByIdService(
@@ -487,7 +586,9 @@ export const getEvidenceById =
         }
       );
     } catch (error) {
-      return next(error);
+      return next(
+        error
+      );
     }
   };
 
@@ -499,10 +600,23 @@ export const getEvidenceById =
    Multipart field:
 
    images
+
+   Maximum:
+
+   10 Before images per Risk
    ========================================================= */
 
 export const addBeforeEvidence =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
+    const allUploadedImagePaths =
+      getAllUploadedImagePaths(
+        req
+      );
+
     const imagePaths =
       getUploadedImagePaths(
         req,
@@ -511,7 +625,8 @@ export const addBeforeEvidence =
 
     try {
       if (
-        imagePaths.length === 0
+        imagePaths.length ===
+        0
       ) {
         throw createHttpError(
           400,
@@ -533,10 +648,12 @@ export const addBeforeEvidence =
       );
     } catch (error) {
       await cleanupFailedUpload(
-        imagePaths
+        allUploadedImagePaths
       );
 
-      return next(error);
+      return next(
+        error
+      );
     }
   };
 
@@ -548,10 +665,23 @@ export const addBeforeEvidence =
    Multipart field:
 
    images
+
+   Maximum:
+
+   10 After images per Risk
    ========================================================= */
 
 export const addAfterEvidence =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
+    const allUploadedImagePaths =
+      getAllUploadedImagePaths(
+        req
+      );
+
     const imagePaths =
       getUploadedImagePaths(
         req,
@@ -560,7 +690,8 @@ export const addAfterEvidence =
 
     try {
       if (
-        imagePaths.length === 0
+        imagePaths.length ===
+        0
       ) {
         throw createHttpError(
           400,
@@ -582,10 +713,12 @@ export const addAfterEvidence =
       );
     } catch (error) {
       await cleanupFailedUpload(
-        imagePaths
+        allUploadedImagePaths
       );
 
-      return next(error);
+      return next(
+        error
+      );
     }
   };
 
@@ -593,10 +726,17 @@ export const addAfterEvidence =
    DELETE SINGLE EVIDENCE
 
    DELETE /api/v1/evidences/risk/:riskId/:evidenceId
+
+   Required Evidence remove hone par completed Risk service
+   ke through automatically In Progress mein revert ho sakta hai.
    ========================================================= */
 
 export const deleteEvidence =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const result =
         await deleteEvidenceService(
@@ -627,7 +767,9 @@ export const deleteEvidence =
         }
       );
     } catch (error) {
-      return next(error);
+      return next(
+        error
+      );
     }
   };
 
@@ -638,7 +780,11 @@ export const deleteEvidence =
    ========================================================= */
 
 export const deleteBeforeEvidences =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const result =
         await deleteEvidenceTypeService(
@@ -676,7 +822,9 @@ export const deleteBeforeEvidences =
         }
       );
     } catch (error) {
-      return next(error);
+      return next(
+        error
+      );
     }
   };
 
@@ -687,7 +835,11 @@ export const deleteBeforeEvidences =
    ========================================================= */
 
 export const deleteAfterEvidences =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const result =
         await deleteEvidenceTypeService(
@@ -725,6 +877,8 @@ export const deleteAfterEvidences =
         }
       );
     } catch (error) {
-      return next(error);
+      return next(
+        error
+      );
     }
   };

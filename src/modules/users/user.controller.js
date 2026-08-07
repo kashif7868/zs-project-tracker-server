@@ -1,8 +1,13 @@
 import {
+  assignUserRoleService,
+  deleteUserService,
   getAllUsersService,
   getUserByIdService,
+  removeUserAvatarService,
+  removeUserRoleService,
   updateUserService,
-  deleteUserService,
+  updateUserStatusService,
+  uploadUserAvatarService,
 } from "./user.service.js";
 
 import {
@@ -10,155 +15,764 @@ import {
   validateUpdateUserInput,
 } from "./user.validation.js";
 
-const isAdminUser = (user) => {
-  return user.role === "admin" || user.role === "super_admin";
-};
+import {
+  deleteUploadedAvatar,
+  getUploadedAvatarPath,
+} from "../../utils/multer.js";
 
+/* =========================================================
+   ROLE HELPERS
+   ========================================================= */
 
-// Get All Users - Admin Only
-export const getAllUsersController = async (req, res) => {
-  try {
-    const response = await getAllUsersService();
-
-    return res.status(200).json(response);
-
-  } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message,
-    });
+const getUserRoleSlug = (
+  user
+) => {
+  if (
+    typeof user?.role ===
+    "string"
+  ) {
+    return user.role
+      .trim()
+      .toLowerCase();
   }
-};
 
-
-// Get User By ID - Own Account or Admin
-export const getUserByIdController = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const validationError = validateMongoId(id);
-
-    if (validationError) {
-      return res.status(400).json({
-        success: false,
-        message: validationError,
-      });
-    }
-
-    const loggedInUserId = req.user._id.toString();
-    const isOwnAccount = loggedInUserId === id;
-    const isAdmin = isAdminUser(req.user);
-
-    if (!isOwnAccount && !isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied",
-      });
-    }
-
-    const response = await getUserByIdService(id);
-
-    return res.status(200).json(response);
-
-  } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message,
-    });
+  if (
+    user?.role &&
+    typeof user.role ===
+      "object" &&
+    typeof user.role.slug ===
+      "string"
+  ) {
+    return user.role.slug
+      .trim()
+      .toLowerCase();
   }
+
+  if (
+    typeof user?.roleSlug ===
+    "string"
+  ) {
+    return user.roleSlug
+      .trim()
+      .toLowerCase();
+  }
+
+  return "";
 };
 
+const isAdminUser = (
+  user
+) => {
+  return [
+    "admin",
+    "super_admin",
+  ].includes(
+    getUserRoleSlug(user)
+  );
+};
 
-// Update User - Own Account or Admin
-export const updateUserController = async (req, res) => {
-  try {
-    const { id } = req.params;
+/* =========================================================
+   CURRENT USER ID
+   ========================================================= */
 
-    const idValidationError = validateMongoId(id);
+const getLoggedInUserId = (
+  user
+) => {
+  return String(
+    user?._id ||
+      user?.id ||
+      user?.userId ||
+      ""
+  );
+};
 
-    if (idValidationError) {
-      return res.status(400).json({
-        success: false,
-        message: idValidationError,
-      });
+/* =========================================================
+   USER ACCESS CHECK
+   ========================================================= */
+
+const canAccessUserAccount = (
+  req,
+  userId
+) => {
+  const loggedInUserId =
+    getLoggedInUserId(
+      req.user
+    );
+
+  const isOwnAccount =
+    loggedInUserId ===
+    String(userId);
+
+  return (
+    isOwnAccount ||
+    isAdminUser(req.user)
+  );
+};
+
+/* =========================================================
+   USER ID VALIDATION
+   ========================================================= */
+
+const validateUserIdOrRespond = (
+  userId,
+  res
+) => {
+  const validationError =
+    validateMongoId(userId);
+
+  if (!validationError) {
+    return true;
+  }
+
+  res.status(400).json({
+    success: false,
+    message:
+      validationError,
+  });
+
+  return false;
+};
+
+/* =========================================================
+   CLEAN TEMPORARY AVATAR
+
+   Multer file save kar chuka ho aur controller validation
+   fail ho jaye to orphan image remove hogi.
+   ========================================================= */
+
+const cleanupRequestAvatar =
+  async (
+    req
+  ) => {
+    const avatarPath =
+      getUploadedAvatarPath(
+        req
+      );
+
+    if (!avatarPath) {
+      return false;
     }
 
-    const bodyValidationError = validateUpdateUserInput(req.body);
+    return deleteUploadedAvatar(
+      avatarPath
+    );
+  };
 
-    if (bodyValidationError) {
-      return res.status(400).json({
-        success: false,
-        message: bodyValidationError,
-      });
+/* =========================================================
+   GET ALL USERS
+
+   GET /api/v1/users
+   ========================================================= */
+
+export const getAllUsersController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      if (
+        !isAdminUser(
+          req.user
+        )
+      ) {
+        return res
+          .status(403)
+          .json({
+            success: false,
+
+            message:
+              "Only Admin or Super Admin can view registered users.",
+          });
+      }
+
+      const response =
+        await getAllUsersService(
+          req.query
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      return next(error);
     }
+  };
 
-    const loggedInUserId = req.user._id.toString();
-    const isOwnAccount = loggedInUserId === id;
-    const isAdmin = isAdminUser(req.user);
+/* =========================================================
+   GET USER BY ID
 
-    if (!isOwnAccount && !isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied",
-      });
+   Own account or Admin/Super Admin.
+
+   GET /api/v1/users/:id
+   ========================================================= */
+
+export const getUserByIdController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const { id } =
+        req.params;
+
+      if (
+        !validateUserIdOrRespond(
+          id,
+          res
+        )
+      ) {
+        return;
+      }
+
+      if (
+        !canAccessUserAccount(
+          req,
+          id
+        )
+      ) {
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message:
+              "Access denied.",
+          });
+      }
+
+      const response =
+        await getUserByIdService(
+          id
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      return next(error);
     }
+  };
 
-    const updateData = { ...req.body };
+/* =========================================================
+   UPDATE USER PROFILE
 
-    /*
-      Normal user apni sensitive fields update nahi kar sakta.
-      Admin/super_admin kar sakte hain.
-    */
-    if (!isAdmin) {
-      delete updateData.email;
+   Own account or Admin/Super Admin.
+
+   Role, status and avatar separate endpoints se manage
+   honge.
+
+   PATCH /api/v1/users/:id
+   ========================================================= */
+
+export const updateUserController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const { id } =
+        req.params;
+
+      if (
+        !validateUserIdOrRespond(
+          id,
+          res
+        )
+      ) {
+        return;
+      }
+
+      const bodyValidationError =
+        validateUpdateUserInput(
+          req.body
+        );
+
+      if (
+        bodyValidationError
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              bodyValidationError,
+          });
+      }
+
+      if (
+        !canAccessUserAccount(
+          req,
+          id
+        )
+      ) {
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message:
+              "Access denied.",
+          });
+      }
+
+      const isAdmin =
+        isAdminUser(
+          req.user
+        );
+
+      const updateData = {
+        ...req.body,
+      };
+
+      /*
+        Role management
+      */
+
       delete updateData.role;
-      delete updateData.isVerified;
-      delete updateData.is2FAEnabled;
+      delete updateData.roleSlug;
+      delete updateData.roleId;
+
+      /*
+        Status and verification
+      */
+
       delete updateData.status;
+
+      delete updateData.isVerified;
+      delete updateData.isPhoneVerified;
+      delete updateData.is2FAEnabled;
+
+      /*
+        Authentication fields
+      */
+
+      delete updateData.password;
+      delete updateData.refreshToken;
+
+      delete updateData.twoFASecret;
+
+      delete updateData.passwordResetToken;
+      delete updateData.passwordResetExpires;
+
+      delete updateData.emailVerificationToken;
+      delete updateData.emailVerificationExpires;
+
+      /*
+        Avatar dedicated multipart endpoint se upload hogi.
+      */
+
+      delete updateData.avatar;
+
+      /*
+        Normal user apna email generic profile endpoint se
+        update nahi kar sakta.
+      */
+
+      if (!isAdmin) {
+        delete updateData.email;
+      }
+
+      const response =
+        await updateUserService(
+          id,
+          updateData
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      return next(error);
     }
+  };
 
-    const response = await updateUserService(id, updateData);
+/* =========================================================
+   UPLOAD OR REPLACE USER AVATAR
 
-    return res.status(200).json(response);
+   multipart/form-data
 
-  } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
+   Field name:
 
+   avatar
 
-// Delete User - Admin Only
-export const deleteUserController = async (req, res) => {
-  try {
-    const { id } = req.params;
+   Own account or Admin/Super Admin.
 
-    const validationError = validateMongoId(id);
+   PATCH /api/v1/users/:id/avatar
+   ========================================================= */
 
-    if (validationError) {
-      return res.status(400).json({
-        success: false,
-        message: validationError,
-      });
+export const uploadUserAvatarController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    let avatarServiceStarted =
+      false;
+
+    try {
+      const { id } =
+        req.params;
+
+      /*
+        Multer controller se pehle file disk par save karta hai.
+        Invalid ID par uploaded file cleanup karna zaroori hai.
+      */
+
+      if (
+        !validateUserIdOrRespond(
+          id,
+          res
+        )
+      ) {
+        await cleanupRequestAvatar(
+          req
+        );
+
+        return;
+      }
+
+      if (
+        !canAccessUserAccount(
+          req,
+          id
+        )
+      ) {
+        await cleanupRequestAvatar(
+          req
+        );
+
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message:
+              "You are not allowed to update this profile picture.",
+          });
+      }
+
+      const avatarPath =
+        getUploadedAvatarPath(
+          req
+        );
+
+      if (!avatarPath) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              'Profile picture is required using the field name "avatar".',
+          });
+      }
+
+      /*
+        Pehle user confirm karte hain taake non-existing user ke
+        liye uploaded file orphan na rahe.
+      */
+
+      try {
+        await getUserByIdService(
+          id
+        );
+      } catch (userError) {
+        await cleanupRequestAvatar(
+          req
+        );
+
+        throw userError;
+      }
+
+      avatarServiceStarted =
+        true;
+
+      const response =
+        await uploadUserAvatarService(
+          id,
+          avatarPath
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      /*
+        Service start hone se pehle failure hua ho to controller
+        temporary upload cleanup karega.
+
+        Service database failure par apni uploaded file khud
+        cleanup karti hai.
+      */
+
+      if (
+        !avatarServiceStarted
+      ) {
+        await cleanupRequestAvatar(
+          req
+        );
+      }
+
+      return next(error);
     }
+  };
 
-    if (req.user._id.toString() === id) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot delete your own account",
-      });
+/* =========================================================
+   REMOVE USER AVATAR
+
+   Own account or Admin/Super Admin.
+
+   DELETE /api/v1/users/:id/avatar
+   ========================================================= */
+
+export const removeUserAvatarController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const { id } =
+        req.params;
+
+      if (
+        !validateUserIdOrRespond(
+          id,
+          res
+        )
+      ) {
+        return;
+      }
+
+      if (
+        !canAccessUserAccount(
+          req,
+          id
+        )
+      ) {
+        return res
+          .status(403)
+          .json({
+            success: false,
+
+            message:
+              "You are not allowed to remove this profile picture.",
+          });
+      }
+
+      const response =
+        await removeUserAvatarService(
+          id
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      return next(error);
     }
+  };
 
-    const response = await deleteUserService(id);
+/* =========================================================
+   ASSIGN DYNAMIC ROLE
 
-    return res.status(200).json(response);
+   PATCH /api/v1/users/:id/role
+   ========================================================= */
 
-  } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
+export const assignUserRoleController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const { id } =
+        req.params;
+
+      if (
+        !validateUserIdOrRespond(
+          id,
+          res
+        )
+      ) {
+        return;
+      }
+
+      const roleIdentifier =
+        req.body?.roleId ||
+        req.body?.roleSlug ||
+        req.body?.role;
+
+      if (
+        typeof roleIdentifier !==
+          "string" ||
+        !roleIdentifier.trim()
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "Role ID or Role slug is required.",
+          });
+      }
+
+      const response =
+        await assignUserRoleService(
+          id,
+          roleIdentifier,
+          req.user
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+/* =========================================================
+   REMOVE ASSIGNED ROLE
+
+   DELETE /api/v1/users/:id/role
+   ========================================================= */
+
+export const removeUserRoleController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const { id } =
+        req.params;
+
+      if (
+        !validateUserIdOrRespond(
+          id,
+          res
+        )
+      ) {
+        return;
+      }
+
+      const response =
+        await removeUserRoleService(
+          id,
+          req.user
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+/* =========================================================
+   UPDATE USER STATUS
+
+   PATCH /api/v1/users/:id/status
+   ========================================================= */
+
+export const updateUserStatusController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const { id } =
+        req.params;
+
+      if (
+        !validateUserIdOrRespond(
+          id,
+          res
+        )
+      ) {
+        return;
+      }
+
+      const status =
+        typeof req.body?.status ===
+          "string"
+          ? req.body.status
+              .trim()
+              .toLowerCase()
+          : "";
+
+      if (
+        ![
+          "active",
+          "inactive",
+          "blocked",
+        ].includes(status)
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "User status must be active, inactive or blocked.",
+          });
+      }
+
+      const response =
+        await updateUserStatusService(
+          id,
+          status,
+          req.user
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+/* =========================================================
+   DELETE USER
+
+   DELETE /api/v1/users/:id
+   ========================================================= */
+
+export const deleteUserController =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const { id } =
+        req.params;
+
+      if (
+        !validateUserIdOrRespond(
+          id,
+          res
+        )
+      ) {
+        return;
+      }
+
+      const response =
+        await deleteUserService(
+          id,
+          req.user
+        );
+
+      return res
+        .status(200)
+        .json(response);
+    } catch (error) {
+      return next(error);
+    }
+  };

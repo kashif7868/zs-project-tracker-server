@@ -71,15 +71,27 @@ const getInvalidFields = (
   body,
   allowedFields
 ) => {
-  return Object.keys(
-    body
-  ).filter(
+  return Object.keys(body).filter(
     (field) =>
       !allowedFields.includes(
         field
       )
   );
 };
+
+const hasOwnField = (
+  object,
+  field
+) => {
+  return Object.prototype.hasOwnProperty.call(
+    object,
+    field
+  );
+};
+
+/* =========================================================
+   TEXT VALIDATION
+   ========================================================= */
 
 const validateRequiredText = ({
   value,
@@ -90,10 +102,13 @@ const validateRequiredText = ({
 }) => {
   const errors = [];
 
-  if (typeof value !== "string") {
+  if (
+    typeof value !== "string"
+  ) {
     errors.push({
       field,
-      message: `${label} is required.`,
+      message:
+        `${label} is required.`,
     });
 
     return errors;
@@ -105,7 +120,8 @@ const validateRequiredText = ({
   if (!normalizedValue) {
     errors.push({
       field,
-      message: `${label} is required.`,
+      message:
+        `${label} is required.`,
     });
 
     return errors;
@@ -117,7 +133,8 @@ const validateRequiredText = ({
   ) {
     errors.push({
       field,
-      message: `${label} must contain at least ${minLength} characters.`,
+      message:
+        `${label} must contain at least ${minLength} characters.`,
     });
   }
 
@@ -127,7 +144,56 @@ const validateRequiredText = ({
   ) {
     errors.push({
       field,
-      message: `${label} cannot exceed ${maxLength} characters.`,
+      message:
+        `${label} cannot exceed ${maxLength} characters.`,
+    });
+  }
+
+  return errors;
+};
+
+const validateOptionalText = ({
+  value,
+  field,
+  label,
+  maxLength,
+  allowNull = false,
+}) => {
+  const errors = [];
+
+  if (
+    value === undefined
+  ) {
+    return errors;
+  }
+
+  if (
+    allowNull &&
+    value === null
+  ) {
+    return errors;
+  }
+
+  if (
+    typeof value !== "string"
+  ) {
+    errors.push({
+      field,
+      message:
+        `${label} must be a string.`,
+    });
+
+    return errors;
+  }
+
+  if (
+    value.trim().length >
+    maxLength
+  ) {
+    errors.push({
+      field,
+      message:
+        `${label} cannot exceed ${maxLength} characters.`,
     });
   }
 
@@ -137,15 +203,7 @@ const validateRequiredText = ({
 /* =========================================================
    EXPRESS 5 QUERY REPLACEMENT
 
-   Express 5 mein req.query getter/read-only hai.
-
-   Invalid:
-   req.query = normalizedQuery;
-
-   Object.defineProperty request instance par apni query
-   property banata hai aur prototype getter ko safely shadow
-   karta hai. Is se existing controllers req.query use kar
-   sakte hain.
+   Express 5 mein req.query read-only getter ho sakti hai.
    ========================================================= */
 
 const setValidatedQuery = (
@@ -176,11 +234,16 @@ export const validateRiskIdParam = (
   res,
   next
 ) => {
-  const riskId = normalizeText(
-    req.params.riskId
-  );
+  const riskId =
+    normalizeText(
+      req.params.riskId
+    );
 
-  if (!isValidObjectId(riskId)) {
+  if (
+    !isValidObjectId(
+      riskId
+    )
+  ) {
     return sendValidationError(
       res,
       "Risk ID is invalid.",
@@ -194,7 +257,8 @@ export const validateRiskIdParam = (
     );
   }
 
-  req.params.riskId = riskId;
+  req.params.riskId =
+    riskId;
 
   return next();
 };
@@ -239,6 +303,15 @@ export const validateProjectIdParam = (
 
 /* =========================================================
    CREATE RISK VALIDATION
+
+   Allowed:
+
+   projectId
+   riskRegisterId optional
+   description
+
+   serialNo model automatically generate karega.
+   status automatically in_progress hoga.
    ========================================================= */
 
 export const validateCreateRisk = (
@@ -246,7 +319,11 @@ export const validateCreateRisk = (
   res,
   next
 ) => {
-  if (!isPlainObject(req.body)) {
+  if (
+    !isPlainObject(
+      req.body
+    )
+  ) {
     return sendValidationError(
       res,
       "A valid request body is required."
@@ -255,7 +332,6 @@ export const validateCreateRisk = (
 
   const allowedFields = [
     "projectId",
-    "serialNo",
     "riskRegisterId",
     "description",
   ];
@@ -273,10 +349,33 @@ export const validateCreateRisk = (
       res,
       "Request contains invalid fields.",
       invalidFields.map(
-        (field) => ({
-          field,
-          message: `${field} is not allowed while creating a risk.`,
-        })
+        (field) => {
+          if (
+            field === "serialNo"
+          ) {
+            return {
+              field,
+              message:
+                "Serial number is generated automatically and cannot be supplied.",
+            };
+          }
+
+          if (
+            field === "status"
+          ) {
+            return {
+              field,
+              message:
+                "New risks automatically start with in_progress status.",
+            };
+          }
+
+          return {
+            field,
+            message:
+              `${field} is not allowed while creating a risk.`,
+          };
+        }
       )
     );
   }
@@ -303,20 +402,21 @@ export const validateCreateRisk = (
   errors.push(
     ...validateRequiredText({
       value:
-        req.body.serialNo,
+        req.body.description,
 
-      field: "serialNo",
+      field:
+        "description",
 
       label:
-        "Serial number",
+        "Description",
 
-      minLength: 1,
-      maxLength: 50,
+      minLength: 3,
+      maxLength: 3000,
     })
   );
 
   errors.push(
-    ...validateRequiredText({
+    ...validateOptionalText({
       value:
         req.body.riskRegisterId,
 
@@ -326,26 +426,13 @@ export const validateCreateRisk = (
       label:
         "Risk Register ID",
 
-      minLength: 1,
       maxLength: 100,
     })
   );
 
-  errors.push(
-    ...validateRequiredText({
-      value:
-        req.body.description,
-
-      field: "description",
-
-      label: "Description",
-
-      minLength: 3,
-      maxLength: 3000,
-    })
-  );
-
-  if (errors.length > 0) {
+  if (
+    errors.length > 0
+  ) {
     return sendValidationError(
       res,
       "Risk validation failed.",
@@ -353,18 +440,8 @@ export const validateCreateRisk = (
     );
   }
 
-  req.body = {
+  const normalizedBody = {
     projectId,
-
-    serialNo:
-      normalizeText(
-        req.body.serialNo
-      ),
-
-    riskRegisterId:
-      normalizeText(
-        req.body.riskRegisterId
-      ).toUpperCase(),
 
     description:
       normalizeText(
@@ -372,11 +449,36 @@ export const validateCreateRisk = (
       ),
   };
 
+  const riskRegisterId =
+    normalizeText(
+      req.body.riskRegisterId
+    );
+
+  if (riskRegisterId) {
+    normalizedBody.riskRegisterId =
+      riskRegisterId.toUpperCase();
+  }
+
+  req.body =
+    normalizedBody;
+
   return next();
 };
 
 /* =========================================================
    UPDATE RISK VALIDATION
+
+   Editable:
+
+   description
+   riskRegisterId optional
+
+   Protected:
+
+   projectId
+   projectCode
+   serialNo
+   status
    ========================================================= */
 
 export const validateUpdateRisk = (
@@ -384,7 +486,11 @@ export const validateUpdateRisk = (
   res,
   next
 ) => {
-  if (!isPlainObject(req.body)) {
+  if (
+    !isPlainObject(
+      req.body
+    )
+  ) {
     return sendValidationError(
       res,
       "A valid request body is required."
@@ -392,11 +498,30 @@ export const validateUpdateRisk = (
   }
 
   const allowedFields = [
-    "projectId",
-    "serialNo",
     "riskRegisterId",
     "description",
   ];
+
+  const receivedFields =
+    Object.keys(
+      req.body
+    );
+
+  if (
+    receivedFields.length === 0
+  ) {
+    return sendValidationError(
+      res,
+      "At least one risk field is required.",
+      [
+        {
+          field: "body",
+          message:
+            "Provide description or riskRegisterId.",
+        },
+      ]
+    );
+  }
 
   const invalidFields =
     getInvalidFields(
@@ -411,79 +536,99 @@ export const validateUpdateRisk = (
       res,
       "Request contains invalid fields.",
       invalidFields.map(
-        (field) => ({
-          field,
-          message: `${field} is not allowed while updating a risk.`,
-        })
+        (field) => {
+          if (
+            field === "serialNo"
+          ) {
+            return {
+              field,
+              message:
+                "Serial number is generated automatically and cannot be updated.",
+            };
+          }
+
+          if (
+            field === "projectId" ||
+            field === "projectCode"
+          ) {
+            return {
+              field,
+              message:
+                "A risk cannot be moved to another project.",
+            };
+          }
+
+          if (
+            field === "status"
+          ) {
+            return {
+              field,
+              message:
+                "Use the dedicated risk status endpoint to update status.",
+            };
+          }
+
+          return {
+            field,
+            message:
+              `${field} is not allowed while updating a risk.`,
+          };
+        }
       )
     );
   }
 
   const errors = [];
 
-  const projectId =
-    normalizeText(
-      req.body.projectId
-    );
-
   if (
-    !isValidObjectId(
-      projectId
+    hasOwnField(
+      req.body,
+      "description"
     )
   ) {
-    errors.push({
-      field: "projectId",
-      message:
-        "A valid Project ID is required.",
-    });
+    errors.push(
+      ...validateRequiredText({
+        value:
+          req.body.description,
+
+        field:
+          "description",
+
+        label:
+          "Description",
+
+        minLength: 3,
+        maxLength: 3000,
+      })
+    );
   }
 
-  errors.push(
-    ...validateRequiredText({
-      value:
-        req.body.serialNo,
+  if (
+    hasOwnField(
+      req.body,
+      "riskRegisterId"
+    )
+  ) {
+    errors.push(
+      ...validateOptionalText({
+        value:
+          req.body.riskRegisterId,
 
-      field: "serialNo",
+        field:
+          "riskRegisterId",
 
-      label:
-        "Serial number",
+        label:
+          "Risk Register ID",
 
-      minLength: 1,
-      maxLength: 50,
-    })
-  );
+        maxLength: 100,
+        allowNull: true,
+      })
+    );
+  }
 
-  errors.push(
-    ...validateRequiredText({
-      value:
-        req.body.riskRegisterId,
-
-      field:
-        "riskRegisterId",
-
-      label:
-        "Risk Register ID",
-
-      minLength: 1,
-      maxLength: 100,
-    })
-  );
-
-  errors.push(
-    ...validateRequiredText({
-      value:
-        req.body.description,
-
-      field: "description",
-
-      label: "Description",
-
-      minLength: 3,
-      maxLength: 3000,
-    })
-  );
-
-  if (errors.length > 0) {
+  if (
+    errors.length > 0
+  ) {
     return sendValidationError(
       res,
       "Risk update validation failed.",
@@ -491,24 +636,46 @@ export const validateUpdateRisk = (
     );
   }
 
-  req.body = {
-    projectId,
+  const normalizedBody = {};
 
-    serialNo:
-      normalizeText(
-        req.body.serialNo
-      ),
-
-    riskRegisterId:
-      normalizeText(
-        req.body.riskRegisterId
-      ).toUpperCase(),
-
-    description:
+  if (
+    hasOwnField(
+      req.body,
+      "description"
+    )
+  ) {
+    normalizedBody.description =
       normalizeText(
         req.body.description
-      ),
-  };
+      );
+  }
+
+  if (
+    hasOwnField(
+      req.body,
+      "riskRegisterId"
+    )
+  ) {
+    const riskRegisterId =
+      normalizeText(
+        req.body.riskRegisterId
+      );
+
+    /*
+      null ya blank string existing Risk Register ID
+      remove karne ki request represent karegi.
+
+      Project setting enabled/disabled service verify karegi.
+    */
+
+    normalizedBody.riskRegisterId =
+      riskRegisterId
+        ? riskRegisterId.toUpperCase()
+        : null;
+  }
+
+  req.body =
+    normalizedBody;
 
   return next();
 };
@@ -522,7 +689,11 @@ export const validateRiskStatusUpdate = (
   res,
   next
 ) => {
-  if (!isPlainObject(req.body)) {
+  if (
+    !isPlainObject(
+      req.body
+    )
+  ) {
     return sendValidationError(
       res,
       "A valid request body is required."
@@ -530,7 +701,9 @@ export const validateRiskStatusUpdate = (
   }
 
   const receivedFields =
-    Object.keys(req.body);
+    Object.keys(
+      req.body
+    );
 
   if (
     receivedFields.length !== 1 ||
@@ -583,7 +756,7 @@ export const validateRiskStatusUpdate = (
 /* =========================================================
    RISK LIST QUERY VALIDATION
 
-   Supported query parameters:
+   Supported:
 
    projectId
    search
@@ -631,7 +804,8 @@ export const validateRiskListQuery = (
       invalidFields.map(
         (field) => ({
           field,
-          message: `${field} query parameter is not supported.`,
+          message:
+            `${field} query parameter is not supported.`,
         })
       )
     );
@@ -734,7 +908,9 @@ export const validateRiskListQuery = (
       );
 
     if (
-      !Number.isInteger(page) ||
+      !Number.isInteger(
+        page
+      ) ||
       page < 1
     ) {
       errors.push({
@@ -798,9 +974,10 @@ export const validateRiskListQuery = (
     ) {
       errors.push({
         field: "sortBy",
-        message: `Sort field must be one of: ${ALLOWED_SORT_FIELDS.join(
-          ", "
-        )}.`,
+        message:
+          `Sort field must be one of: ${ALLOWED_SORT_FIELDS.join(
+            ", "
+          )}.`,
       });
     } else {
       normalizedQuery.sortBy =
@@ -835,21 +1012,15 @@ export const validateRiskListQuery = (
     }
   }
 
-  if (errors.length > 0) {
+  if (
+    errors.length > 0
+  ) {
     return sendValidationError(
       res,
       "Risk query validation failed.",
       errors
     );
   }
-
-  /*
-    Express 5 fix:
-
-    req.query = normalizedQuery;
-
-    use nahi karna.
-  */
 
   setValidatedQuery(
     req,
