@@ -19,7 +19,9 @@ const { Schema } = mongoose;
    Custom role slugs Role collection se dashboard par
    dynamically create hongi.
 
-   User model dobara update karne ki zarurat nahi hogi.
+   Email verification infrastructure schema mein preserved
+   hai, lekin current Project Tracker mein new accounts
+   automatically verified create hote hain.
    ========================================================= */
 
 const userSchema = new Schema(
@@ -131,7 +133,8 @@ const userSchema = new Schema(
        ===================================================== */
 
     roleAssignedBy: {
-      type: Schema.Types.ObjectId,
+      type:
+        Schema.Types.ObjectId,
 
       ref: "User",
 
@@ -143,6 +146,10 @@ const userSchema = new Schema(
 
       default: null,
     },
+
+    /* =====================================================
+       PROFILE
+       ===================================================== */
 
     avatar: {
       type: String,
@@ -165,48 +172,23 @@ const userSchema = new Schema(
       default: "local",
     },
 
+    /* =====================================================
+       EMAIL VERIFICATION
+
+       Current Project Tracker:
+       new accounts are verified automatically.
+
+       Existing verification fields remain available so
+       email verification can be re-enabled later without
+       redesigning the User model.
+       ===================================================== */
+
     isVerified: {
       type: Boolean,
 
-      default: false,
+      default: true,
 
       index: true,
-    },
-
-    isPhoneVerified: {
-      type: Boolean,
-
-      default: false,
-    },
-
-    is2FAEnabled: {
-      type: Boolean,
-
-      default: false,
-    },
-
-    twoFASecret: {
-      type: String,
-
-      default: "",
-    },
-
-    refreshToken: {
-      type: String,
-
-      default: "",
-    },
-
-    passwordResetToken: {
-      type: String,
-
-      default: "",
-    },
-
-    passwordResetExpires: {
-      type: Date,
-
-      default: null,
     },
 
     emailVerificationToken: {
@@ -219,6 +201,16 @@ const userSchema = new Schema(
       type: Date,
 
       default: null,
+    },
+
+    /* =====================================================
+       PHONE VERIFICATION
+       ===================================================== */
+
+    isPhoneVerified: {
+      type: Boolean,
+
+      default: false,
     },
 
     phoneVerificationOtp: {
@@ -246,6 +238,52 @@ const userSchema = new Schema(
 
       default: null,
     },
+
+    /* =====================================================
+       TWO FACTOR AUTHENTICATION
+       ===================================================== */
+
+    is2FAEnabled: {
+      type: Boolean,
+
+      default: false,
+    },
+
+    twoFASecret: {
+      type: String,
+
+      default: "",
+    },
+
+    /* =====================================================
+       REFRESH TOKEN
+       ===================================================== */
+
+    refreshToken: {
+      type: String,
+
+      default: "",
+    },
+
+    /* =====================================================
+       PASSWORD RESET
+       ===================================================== */
+
+    passwordResetToken: {
+      type: String,
+
+      default: "",
+    },
+
+    passwordResetExpires: {
+      type: Date,
+
+      default: null,
+    },
+
+    /* =====================================================
+       ACCOUNT STATUS
+       ===================================================== */
 
     status: {
       type: String,
@@ -277,7 +315,9 @@ const userSchema = new Schema(
 userSchema.index(
   {
     role: 1,
+
     status: 1,
+
     createdAt: -1,
   },
   {
@@ -303,7 +343,10 @@ userSchema.pre(
       this.name =
         this.name
           .trim()
-          .replace(/\s+/g, " ");
+          .replace(
+            /\s+/g,
+            " "
+          );
     }
 
     if (
@@ -324,8 +367,14 @@ userSchema.pre(
         this.role
           .trim()
           .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "_")
-          .replace(/^_+|_+$/g, "");
+          .replace(
+            /[^a-z0-9]+/g,
+            "_"
+          )
+          .replace(
+            /^_+|_+$/g,
+            ""
+          );
     }
 
     if (
@@ -358,32 +407,36 @@ userSchema.pre(
    SAFE JSON RESPONSE
    ========================================================= */
 
-userSchema.set("toJSON", {
-  transform(
-    _document,
-    returnedObject
-  ) {
-    delete returnedObject.password;
-    delete returnedObject.refreshToken;
+userSchema.set(
+  "toJSON",
+  {
+    transform(
+      _document,
+      returnedObject
+    ) {
+      delete returnedObject.password;
 
-    delete returnedObject.twoFASecret;
+      delete returnedObject.refreshToken;
 
-    delete returnedObject.passwordResetToken;
-    delete returnedObject.passwordResetExpires;
+      delete returnedObject.twoFASecret;
 
-    delete returnedObject.emailVerificationToken;
-    delete returnedObject.emailVerificationExpires;
+      delete returnedObject.passwordResetToken;
+      delete returnedObject.passwordResetExpires;
 
-    delete returnedObject.phoneVerificationOtp;
-    delete returnedObject.phoneVerificationExpires;
-    delete returnedObject.phoneVerificationAttempts;
-    delete returnedObject.phoneVerificationLastSentAt;
+      delete returnedObject.emailVerificationToken;
+      delete returnedObject.emailVerificationExpires;
 
-    delete returnedObject.__v;
+      delete returnedObject.phoneVerificationOtp;
+      delete returnedObject.phoneVerificationExpires;
+      delete returnedObject.phoneVerificationAttempts;
+      delete returnedObject.phoneVerificationLastSentAt;
 
-    return returnedObject;
-  },
-});
+      delete returnedObject.__v;
+
+      return returnedObject;
+    },
+  }
+);
 
 /* =========================================================
    MODEL EXPORT
