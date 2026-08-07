@@ -1,165 +1,336 @@
 import validator from "validator";
 
+/* =========================================================
+   HELPERS
+   ========================================================= */
 
-// Register Validation
+const isNonEmptyString = (value) => {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0
+  );
+};
+
+/* =========================================================
+   REGISTER VALIDATION
+
+   Current frontend payload:
+
+   name
+   email
+   password
+
+   phone and countryCode remain optional for future use.
+   ========================================================= */
+
 export const validateRegisterInput = (data) => {
-    if (!data) {
-        return "Request body is missing";
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    return "Request body is missing";
+  }
+
+  const {
+    name,
+    email,
+    password,
+    phone,
+    countryCode,
+  } = data;
+
+  if (
+    !isNonEmptyString(name) ||
+    !isNonEmptyString(email) ||
+    !isNonEmptyString(password)
+  ) {
+    return "Name, email and password are required";
+  }
+
+  if (
+    name.trim().length < 2
+  ) {
+    return "Name must be at least 2 characters";
+  }
+
+  if (
+    name.trim().length > 150
+  ) {
+    return "Name cannot exceed 150 characters";
+  }
+
+  if (
+    !validator.isEmail(
+      email.trim()
+    )
+  ) {
+    return "Invalid email";
+  }
+
+  if (
+    password.length < 8
+  ) {
+    return "Password must be at least 8 characters";
+  }
+
+  if (
+    phone !== undefined &&
+    phone !== null &&
+    String(phone).trim()
+  ) {
+    if (
+      typeof phone !== "string" ||
+      !validator.isMobilePhone(
+        phone.trim(),
+        "any"
+      )
+    ) {
+      return "Invalid phone number";
     }
+  }
 
-    const { name, email, password, phone, countryCode } = data;
-
-    if (!name || !email || !password) {
-        return "Name, email and password are required";
+  if (
+    countryCode !== undefined &&
+    countryCode !== null &&
+    String(countryCode).trim()
+  ) {
+    if (
+      typeof countryCode !== "string" ||
+      !/^\+\d{1,4}$/.test(
+        countryCode.trim()
+      )
+    ) {
+      return "Invalid country code";
     }
+  }
 
-    if (name.trim().length < 2) {
-        return "Name must be at least 2 characters";
-    }
-
-    if (!validator.isEmail(email)) {
-        return "Invalid email";
-    }
-
-    if (password.length < 8) {
-        return "Password must be at least 8 characters";
-    }
-
-    if (phone && !validator.isMobilePhone(phone, "any")) {
-        return "Invalid phone number";
-    }
-
-    if (countryCode && !/^\+\d{1,4}$/.test(countryCode)) {
-        return "Invalid country code";
-    }
-
-    return null;
+  return null;
 };
 
+/* =========================================================
+   LOGIN VALIDATION
+   ========================================================= */
 
-// Login Validation
 export const validateLoginInput = (data) => {
-    if (!data) {
-        return "Request body is missing";
-    }
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    return "Request body is missing";
+  }
 
-    const { email, password } = data;
+  const {
+    email,
+    password,
+  } = data;
 
-    if (!email || !password) {
-        return "Email and password are required";
-    }
+  if (
+    !isNonEmptyString(email) ||
+    !isNonEmptyString(password)
+  ) {
+    return "Email and password are required";
+  }
 
-    if (!validator.isEmail(email)) {
-        return "Invalid email";
-    }
+  if (
+    !validator.isEmail(
+      email.trim()
+    )
+  ) {
+    return "Invalid email";
+  }
 
-    return null;
+  return null;
 };
 
+/* =========================================================
+   REFRESH TOKEN VALIDATION
+   ========================================================= */
 
-// Refresh Token Validation
 export const validateRefreshTokenInput = (data) => {
-    if (!data) {
-        return "Request body is missing";
-    }
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    return "Request body is missing";
+  }
 
-    const { refreshToken } = data;
+  const {
+    refreshToken,
+  } = data;
 
-    if (!refreshToken) {
-        return "Refresh token is required";
-    }
+  if (
+    !isNonEmptyString(
+      refreshToken
+    )
+  ) {
+    return "Refresh token is required";
+  }
 
-    return null;
+  return null;
 };
 
+/* =========================================================
+   CHANGE PASSWORD VALIDATION
+   ========================================================= */
 
-// Change Password Validation
 export const validateChangePasswordInput = (data) => {
-    if (!data) {
-        return "Request body is missing";
-    }
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    return "Request body is missing";
+  }
 
-    const { oldPassword, newPassword, confirmPassword } = data;
+  const {
+    oldPassword,
+    newPassword,
+    confirmPassword,
+  } = data;
 
-    if (!oldPassword || !newPassword) {
-        return "Old password and new password are required";
-    }
+  if (
+    !isNonEmptyString(
+      oldPassword
+    ) ||
+    !isNonEmptyString(
+      newPassword
+    )
+  ) {
+    return "Old password and new password are required";
+  }
 
-    if (newPassword.length < 8) {
-        return "New password must be at least 8 characters";
-    }
+  if (
+    newPassword.length < 8
+  ) {
+    return "New password must be at least 8 characters";
+  }
 
-    if (oldPassword === newPassword) {
-        return "New password must be different from old password";
-    }
+  if (
+    oldPassword ===
+    newPassword
+  ) {
+    return "New password must be different from old password";
+  }
 
-    if (confirmPassword && newPassword !== confirmPassword) {
-        return "New password and confirm password do not match";
-    }
+  if (
+    confirmPassword &&
+    newPassword !==
+      confirmPassword
+  ) {
+    return "New password and confirm password do not match";
+  }
 
-    return null;
+  return null;
 };
 
+/* =========================================================
+   FORGOT PASSWORD VALIDATION
+   ========================================================= */
 
-// Forgot Password Validation
 export const validateForgotPasswordInput = (data) => {
-    if (!data) {
-        return "Request body is missing";
-    }
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    return "Request body is missing";
+  }
 
-    const { email } = data;
+  const {
+    email,
+  } = data;
 
-    if (!email) {
-        return "Email is required";
-    }
+  if (
+    !isNonEmptyString(email)
+  ) {
+    return "Email is required";
+  }
 
-    if (!validator.isEmail(email)) {
-        return "Invalid email";
-    }
+  if (
+    !validator.isEmail(
+      email.trim()
+    )
+  ) {
+    return "Invalid email";
+  }
 
-    return null;
+  return null;
 };
 
+/* =========================================================
+   RESET PASSWORD VALIDATION
+   ========================================================= */
 
-// Reset Password Validation
 export const validateResetPasswordInput = (data) => {
-    if (!data) {
-        return "Request body is missing";
-    }
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    return "Request body is missing";
+  }
 
-    const { newPassword, confirmPassword } = data;
+  const {
+    newPassword,
+    confirmPassword,
+  } = data;
 
-    if (!newPassword) {
-        return "New password is required";
-    }
+  if (
+    !isNonEmptyString(
+      newPassword
+    )
+  ) {
+    return "New password is required";
+  }
 
-    if (newPassword.length < 8) {
-        return "New password must be at least 8 characters";
-    }
+  if (
+    newPassword.length < 8
+  ) {
+    return "New password must be at least 8 characters";
+  }
 
-    if (confirmPassword && newPassword !== confirmPassword) {
-        return "New password and confirm password do not match";
-    }
+  if (
+    confirmPassword &&
+    newPassword !==
+      confirmPassword
+  ) {
+    return "New password and confirm password do not match";
+  }
 
-    return null;
+  return null;
 };
 
+/* =========================================================
+   RESEND VERIFICATION EMAIL VALIDATION
 
-// Resend Verification Email Validation
+   Verification feature is preserved for future applications.
+
+   Current Project Tracker does not require email
+   verification during registration, login or token refresh.
+   ========================================================= */
+
 export const validateResendVerificationEmailInput = (data) => {
-    if (!data) {
-        return "Request body is missing";
-    }
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    return "Request body is missing";
+  }
 
-    const { email } = data;
+  const {
+    email,
+  } = data;
 
-    if (!email) {
-        return "Email is required";
-    }
+  if (
+    !isNonEmptyString(email)
+  ) {
+    return "Email is required";
+  }
 
-    if (!validator.isEmail(email)) {
-        return "Invalid email";
-    }
+  if (
+    !validator.isEmail(
+      email.trim()
+    )
+  ) {
+    return "Invalid email";
+  }
 
-    return null;
+  return null;
 };
