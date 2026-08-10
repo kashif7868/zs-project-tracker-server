@@ -13,20 +13,20 @@ const startServer = async () => {
     await connectDB();
 
     // Start Server
-    app.listen(PORT, () => {
+    app.listen(PORT, "0.0.0.0", () => {
       console.log(
         chalk.blue.bold(
           `🚀 Server running successfully on port ${PORT}`
         )
       );
     });
-
   } catch (error) {
     console.error(
       chalk.red.bold(
         `❌ Failed to start server: ${error.message}`
       )
     );
+
     process.exit(1);
   }
 };
