@@ -1156,6 +1156,21 @@ export const getTasksService =
 
 /* =========================================================
    GET SINGLE TASK
+
+   serialNo:
+   Permanent/internal database serial. Deleted Tasks can leave
+   gaps in this value.
+
+   displaySrNo:
+   Current visible Task Register position for the Project.
+
+   Example:
+   Stored serialNo = 27
+   Current Project has 22 existing Tasks
+   Visible displaySrNo = 22
+
+   The same ordering used by the Task Register is followed:
+   serialNo ASC, then _id ASC.
    ========================================================= */
 
 export const getTaskByIdService =
@@ -1177,16 +1192,56 @@ export const getTaskByIdService =
       );
     }
 
+    /*
+      Do not modify stored serialNo.
+
+      Build a continuous visible sequence from the currently
+      existing Tasks in the same Project.
+    */
+
+    const projectTasks =
+      await Task.find({
+        projectId:
+          task.projectId,
+      })
+        .select(
+          "_id serialNo"
+        )
+        .sort({
+          serialNo: 1,
+          _id: 1,
+        })
+        .lean();
+
+    const taskIndex =
+      projectTasks.findIndex(
+        (projectTask) =>
+          String(
+            projectTask._id
+          ) ===
+          String(
+            task._id
+          )
+      );
+
+    const displaySrNo =
+      taskIndex >= 0
+        ? taskIndex + 1
+        : task.serialNo;
+
     const evidence =
       await getTaskEvidence(
         taskId
       );
 
     return {
-      task:
-        attachTaskMeta(
+      task: {
+        ...attachTaskMeta(
           task
         ),
+
+        displaySrNo,
+      },
 
       evidence,
     };

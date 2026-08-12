@@ -7,11 +7,14 @@ import projectRoutes from "../modules/projects/project.routes.js";
 import taskRoutes from "../modules/task_register/task.routes.js";
 import evidenceRoutes from "../modules/evidences/evidence.routes.js";
 import documentRoutes from "../modules/documents/document.routes.js";
+import actionPlanRoutes from "../modules/action_plans/actionPlan.routes.js";
 
-const router = express.Router();
+const router =
+  express.Router();
 
 /* =========================================================
    AUTH ROUTES
+
    /api/v1/auth
    ========================================================= */
 
@@ -22,6 +25,7 @@ router.use(
 
 /* =========================================================
    USER ROUTES
+
    /api/v1/users
    ========================================================= */
 
@@ -32,6 +36,7 @@ router.use(
 
 /* =========================================================
    ROLE ROUTES
+
    /api/v1/roles
    ========================================================= */
 
@@ -42,6 +47,7 @@ router.use(
 
 /* =========================================================
    PROJECT ROUTES
+
    /api/v1/projects
    ========================================================= */
 
@@ -54,9 +60,8 @@ router.use(
    TASK REGISTER ROUTES
 
    Canonical API:
-   /api/v1/tasks
 
-   New backend/dashboard/frontend should use this route.
+   /api/v1/tasks
    ========================================================= */
 
 router.use(
@@ -69,12 +74,9 @@ router.use(
 
    /api/v1/risks
 
-   Migration ke duran existing dashboard/frontend ko break
-   hone se bachane ke liye temporarily same Task router mount
-   kiya gaya hai.
-
-   Dashboard + public frontend fully /tasks par migrate hone
-   ke baad is block ko remove kar dena.
+   Existing older dashboard/frontend references may still use
+   this alias. Remove it only after the entire application has
+   fully migrated to /tasks.
    ========================================================= */
 
 router.use(
@@ -84,17 +86,15 @@ router.use(
 
 /* =========================================================
    EVIDENCE ROUTES
+
+   Canonical API:
+
    /api/v1/evidences
 
-   NOTE:
-   Evidence module abhi legacy riskId routes use kar raha hai.
+   Evidence uploads now use canonical Task routes:
 
-   Next migration step mein:
-   /risk/:riskId
-   ->
-   /task/:taskId
-
-   convert karenge.
+   /api/v1/evidences/task/:taskId/before
+   /api/v1/evidences/task/:taskId/after
    ========================================================= */
 
 router.use(
@@ -103,7 +103,21 @@ router.use(
 );
 
 /* =========================================================
+   ACTION PLAN ROUTES
+
+   Canonical API:
+
+   /api/v1/action-plans
+   ========================================================= */
+
+router.use(
+  "/action-plans",
+  actionPlanRoutes
+);
+
+/* =========================================================
    DOCUMENT AND REPORT ROUTES
+
    /api/v1/documents
    ========================================================= */
 
