@@ -15,21 +15,30 @@ import {
   getAfterEvidences,
   getBeforeEvidences,
   getEvidenceById,
-  getRiskEvidences,
+  getTaskEvidences,
 } from "./evidence.controller.js";
 
 import {
+  validateEvidenceIdParam,
+  validateEvidenceUpload,
+  validateTaskEvidenceParams,
+  validateTaskIdParam,
+} from "./evidence.validation.js";
+
+import {
   handleEvidenceUpload,
+  requireTaskIdForEvidenceUpload,
   uploadAfterEvidence,
   uploadBeforeEvidence,
 } from "../../utils/multer.js";
 
-const router = express.Router();
+const router =
+  express.Router();
 
 /* =========================================================
    AUTHENTICATION
 
-   Evidence module ki tamam routes protected hain.
+   Evidence module ki tamam dashboard routes protected hain.
    ========================================================= */
 
 router.use(
@@ -37,49 +46,37 @@ router.use(
 );
 
 /* =========================================================
-   GET COMPLETE RISK EVIDENCE
+   GET COMPLETE TASK EVIDENCE
 
-   Required permission:
-
-   evidence.view
-
-   GET /api/v1/evidences/risk/:riskId
-
-   Response:
-
-   - Before Evidence
-   - After Evidence
-   - Before count
-   - After count
-   - completion eligibility
+   GET /api/v1/evidences/task/:taskId
    ========================================================= */
 
 router.get(
-  "/risk/:riskId",
+  "/task/:taskId",
 
   permissionMiddleware(
     "evidence.view"
   ),
 
-  getRiskEvidences
+  validateTaskIdParam,
+
+  getTaskEvidences
 );
 
 /* =========================================================
    GET BEFORE EVIDENCE
 
-   Required permission:
-
-   evidence.view
-
-   GET /api/v1/evidences/risk/:riskId/before
+   GET /api/v1/evidences/task/:taskId/before
    ========================================================= */
 
 router.get(
-  "/risk/:riskId/before",
+  "/task/:taskId/before",
 
   permissionMiddleware(
     "evidence.view"
   ),
+
+  validateTaskIdParam,
 
   getBeforeEvidences
 );
@@ -87,19 +84,17 @@ router.get(
 /* =========================================================
    GET AFTER EVIDENCE
 
-   Required permission:
-
-   evidence.view
-
-   GET /api/v1/evidences/risk/:riskId/after
+   GET /api/v1/evidences/task/:taskId/after
    ========================================================= */
 
 router.get(
-  "/risk/:riskId/after",
+  "/task/:taskId/after",
 
   permissionMiddleware(
     "evidence.view"
   ),
+
+  validateTaskIdParam,
 
   getAfterEvidences
 );
@@ -107,46 +102,29 @@ router.get(
 /* =========================================================
    UPLOAD BEFORE EVIDENCE
 
-   Required permission:
+   POST /api/v1/evidences/task/:taskId/before
 
-   evidence.upload
+   New uploads are written ONLY to:
 
-   POST /api/v1/evidences/risk/:riskId/before
-
-   Content-Type:
-
-   multipart/form-data
-
-   Multipart field:
-
-   images
-
-   Supported formats:
-
-   JPG
-   JPEG
-   PNG
-   WEBP
-
-   Limits:
-
-   - maximum 10 files in one upload request
-   - maximum 10 Before images per Risk
-   - maximum 10 MB per image
-
-   Upload Risk ko automatically Complete nahi karega.
+   public/uploads/tasks/before
    ========================================================= */
 
 router.post(
-  "/risk/:riskId/before",
+  "/task/:taskId/before",
 
   permissionMiddleware(
     "evidence.upload"
   ),
 
+  validateTaskIdParam,
+
+  requireTaskIdForEvidenceUpload,
+
   handleEvidenceUpload(
     uploadBeforeEvidence
   ),
+
+  validateEvidenceUpload,
 
   addBeforeEvidence
 );
@@ -154,46 +132,29 @@ router.post(
 /* =========================================================
    UPLOAD AFTER EVIDENCE
 
-   Required permission:
+   POST /api/v1/evidences/task/:taskId/after
 
-   evidence.upload
+   New uploads are written ONLY to:
 
-   POST /api/v1/evidences/risk/:riskId/after
-
-   Content-Type:
-
-   multipart/form-data
-
-   Multipart field:
-
-   images
-
-   Supported formats:
-
-   JPG
-   JPEG
-   PNG
-   WEBP
-
-   Limits:
-
-   - maximum 10 files in one upload request
-   - maximum 10 After images per Risk
-   - maximum 10 MB per image
-
-   Upload ke baad Mark Complete action manually use hoga.
+   public/uploads/tasks/after
    ========================================================= */
 
 router.post(
-  "/risk/:riskId/after",
+  "/task/:taskId/after",
 
   permissionMiddleware(
     "evidence.upload"
   ),
 
+  validateTaskIdParam,
+
+  requireTaskIdForEvidenceUpload,
+
   handleEvidenceUpload(
     uploadAfterEvidence
   ),
+
+  validateEvidenceUpload,
 
   addAfterEvidence
 );
@@ -201,27 +162,17 @@ router.post(
 /* =========================================================
    DELETE ALL BEFORE EVIDENCE
 
-   Required permission:
-
-   evidence.delete
-
-   DELETE /api/v1/evidences/risk/:riskId/before
-
-   Deletes:
-
-   - Before Evidence database records
-   - related local image files
-
-   Complete Risk ki required Before Evidence remove hone par
-   backend status ko In Progress mein revert karega.
+   DELETE /api/v1/evidences/task/:taskId/before
    ========================================================= */
 
 router.delete(
-  "/risk/:riskId/before",
+  "/task/:taskId/before",
 
   permissionMiddleware(
     "evidence.delete"
   ),
+
+  validateTaskIdParam,
 
   deleteBeforeEvidences
 );
@@ -229,27 +180,17 @@ router.delete(
 /* =========================================================
    DELETE ALL AFTER EVIDENCE
 
-   Required permission:
-
-   evidence.delete
-
-   DELETE /api/v1/evidences/risk/:riskId/after
-
-   Deletes:
-
-   - After Evidence database records
-   - related local image files
-
-   Complete Risk ki required After Evidence remove hone par
-   backend status ko In Progress mein revert karega.
+   DELETE /api/v1/evidences/task/:taskId/after
    ========================================================= */
 
 router.delete(
-  "/risk/:riskId/after",
+  "/task/:taskId/after",
 
   permissionMiddleware(
     "evidence.delete"
   ),
+
+  validateTaskIdParam,
 
   deleteAfterEvidences
 );
@@ -257,34 +198,23 @@ router.delete(
 /* =========================================================
    DELETE SINGLE EVIDENCE
 
-   Required permission:
-
-   evidence.delete
-
-   DELETE /api/v1/evidences/risk/:riskId/:evidenceId
-
-   Database record aur related local image file delete hogi.
-
-   Required Evidence remove hone par completed Risk ka status
-   In Progress mein revert ho sakta hai.
+   DELETE /api/v1/evidences/task/:taskId/:evidenceId
    ========================================================= */
 
 router.delete(
-  "/risk/:riskId/:evidenceId",
+  "/task/:taskId/:evidenceId",
 
   permissionMiddleware(
     "evidence.delete"
   ),
+
+  validateTaskEvidenceParams,
 
   deleteEvidence
 );
 
 /* =========================================================
    GET SINGLE EVIDENCE
-
-   Required permission:
-
-   evidence.view
 
    GET /api/v1/evidences/:evidenceId
    ========================================================= */
@@ -296,7 +226,95 @@ router.get(
     "evidence.view"
   ),
 
+  validateEvidenceIdParam,
+
   getEvidenceById
+);
+
+/* =========================================================
+   LEGACY RISK ROUTES
+
+   IMPORTANT:
+   Legacy upload POST routes have been REMOVED.
+
+   Is se koi bhi new Evidence file /uploads/risks folder mein
+   write nahi ho sakti.
+
+   Temporary GET/DELETE aliases old dashboard links aur old
+   database records ke liye retained hain. Inko frontend
+   migration complete hone ke baad remove kar dena.
+   ========================================================= */
+
+router.get(
+  "/risk/:taskId",
+
+  permissionMiddleware(
+    "evidence.view"
+  ),
+
+  validateTaskIdParam,
+
+  getTaskEvidences
+);
+
+router.get(
+  "/risk/:taskId/before",
+
+  permissionMiddleware(
+    "evidence.view"
+  ),
+
+  validateTaskIdParam,
+
+  getBeforeEvidences
+);
+
+router.get(
+  "/risk/:taskId/after",
+
+  permissionMiddleware(
+    "evidence.view"
+  ),
+
+  validateTaskIdParam,
+
+  getAfterEvidences
+);
+
+router.delete(
+  "/risk/:taskId/before",
+
+  permissionMiddleware(
+    "evidence.delete"
+  ),
+
+  validateTaskIdParam,
+
+  deleteBeforeEvidences
+);
+
+router.delete(
+  "/risk/:taskId/after",
+
+  permissionMiddleware(
+    "evidence.delete"
+  ),
+
+  validateTaskIdParam,
+
+  deleteAfterEvidences
+);
+
+router.delete(
+  "/risk/:taskId/:evidenceId",
+
+  permissionMiddleware(
+    "evidence.delete"
+  ),
+
+  validateTaskEvidenceParams,
+
+  deleteEvidence
 );
 
 export default router;

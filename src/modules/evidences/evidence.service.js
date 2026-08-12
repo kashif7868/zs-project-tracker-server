@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
 
 import Evidence from "../../models/evidences/evidence.model.js";
-import Risk from "../../models/risks/risk.model.js";
+import Task from "../../models/task_register/task.model.js";
 
 import {
-  syncRiskStatusWithEvidence,
-} from "../risks/risk.service.js";
+  syncTaskStatusWithEvidence,
+} from "../task_register/task.service.js";
 
 /* =========================================================
    CONSTANTS
@@ -116,16 +116,16 @@ const toPlainObject = (
   return value;
 };
 
-const getOptionalRiskRegisterId = (
+const getOptionalTaskRegisterId = (
   value
 ) => {
-  const riskRegisterId =
+  const taskRegisterId =
     normalizeText(
       value
     ).toUpperCase();
 
   return (
-    riskRegisterId ||
+    taskRegisterId ||
     undefined
   );
 };
@@ -251,71 +251,72 @@ const normalizeImagePaths = (
 };
 
 /* =========================================================
-   RISK HELPER
+   TASK HELPER
    ========================================================= */
 
-const getRiskRecord = async (
-  riskId
+const getTaskRecord = async (
+  taskId
 ) => {
-  const normalizedRiskId =
+  const normalizedTaskId =
     validateMongoId(
-      riskId,
-      "Risk ID"
+      taskId,
+      "Task ID"
     );
 
-  const risk =
-    await Risk.findById(
-      normalizedRiskId
+  const task =
+    await Task.findById(
+      normalizedTaskId
     ).lean();
 
-  if (!risk) {
+  if (!task) {
     throw createServiceError(
       404,
-      "Risk not found."
+      "Task not found."
     );
   }
 
-  return risk;
+  return task;
 };
 
-const buildRiskResponse = (
-  risk
+const buildTaskResponse = (
+  task
 ) => {
-  const riskRegisterId =
-    getOptionalRiskRegisterId(
-      risk.riskRegisterId
+  const taskRegisterId =
+    getOptionalTaskRegisterId(
+      task.taskRegisterId ||
+      task.riskRegisterId
     );
 
   return {
     _id:
-      risk._id,
+      task._id,
 
     projectId:
-      risk.projectId,
+      task.projectId,
 
     projectCode:
-      risk.projectCode,
+      task.projectCode,
 
     serialNo:
-      risk.serialNo,
+      task.serialNo,
 
-    ...(riskRegisterId
+    ...(taskRegisterId
       ? {
-          riskRegisterId,
+          taskRegisterId,
         }
       : {}),
 
     description:
-      risk.description,
+      task.description,
 
     status:
-      risk.status,
+      task.status,
 
     createdAt:
-      risk.createdAt,
+      task.createdAt,
 
     updatedAt:
-      risk.updatedAt,
+      task.updatedAt,
   };
 };
 
@@ -368,22 +369,22 @@ const buildEvidenceResponse = (
 };
 
 /* =========================================================
-   GET ALL EVIDENCE FOR ONE RISK
+   GET ALL EVIDENCE FOR ONE TASK
    ========================================================= */
 
-export const getRiskEvidencesService =
+export const getTaskEvidencesService =
   async (
-    riskId
+    taskId
   ) => {
-    const risk =
-      await getRiskRecord(
-        riskId
+    const task =
+      await getTaskRecord(
+        taskId
       );
 
     const evidenceRecords =
       await Evidence.find({
         riskId:
-          risk._id,
+          task._id,
       })
         .sort({
           createdAt: 1,
@@ -401,12 +402,12 @@ export const getRiskEvidencesService =
 
 export const getEvidenceByTypeService =
   async (
-    riskId,
+    taskId,
     requestedEvidenceType
   ) => {
-    const risk =
-      await getRiskRecord(
-        riskId
+    const task =
+      await getTaskRecord(
+        taskId
       );
 
     const evidenceType =
@@ -417,7 +418,7 @@ export const getEvidenceByTypeService =
     const evidences =
       await Evidence.find({
         riskId:
-          risk._id,
+          task._id,
 
         evidenceType,
       })
@@ -439,12 +440,12 @@ export const getEvidenceByTypeService =
 /* =========================================================
    ADD EVIDENCE IMAGES
 
-   Maximum limit per Risk:
+   Maximum limit per Task:
 
    10 Before images
    10 After images
 
-   Evidence upload Risk ko automatically Complete nahi karega.
+   Evidence upload Task ko automatically Complete nahi karega.
 
    User manually Mark Complete use karega after at least:
 
@@ -454,16 +455,16 @@ export const getEvidenceByTypeService =
 
 export const addEvidenceImagesService =
   async ({
-    riskId,
+    taskId,
 
     evidenceType:
       requestedEvidenceType,
 
     imagePaths,
   }) => {
-    const risk =
-      await getRiskRecord(
-        riskId
+    const task =
+      await getTaskRecord(
+        taskId
       );
 
     const evidenceType =
@@ -476,14 +477,14 @@ export const addEvidenceImagesService =
         imagePaths
       );
 
-    const expectedFolder =
-      `/uploads/risks/${evidenceType}/`;
+    const allowedFolder =
+      `/uploads/tasks/${evidenceType}/`;
 
     const invalidFolderPaths =
       normalizedImagePaths.filter(
         (imagePath) =>
           !imagePath.startsWith(
-            expectedFolder
+            allowedFolder
           )
       );
 
@@ -493,7 +494,7 @@ export const addEvidenceImagesService =
     ) {
       throw createServiceError(
         400,
-        `${evidenceType} Evidence images must be stored inside ${expectedFolder}`
+        `${evidenceType} Evidence images must be stored inside /uploads/tasks/${evidenceType}/`
       );
     }
 
@@ -504,7 +505,7 @@ export const addEvidenceImagesService =
       await Promise.all([
         Evidence.find({
           riskId:
-            risk._id,
+            task._id,
 
           evidenceType,
 
@@ -520,7 +521,7 @@ export const addEvidenceImagesService =
 
         Evidence.countDocuments({
           riskId:
-            risk._id,
+            task._id,
 
           evidenceType,
         }),
@@ -548,7 +549,7 @@ export const addEvidenceImagesService =
     ) {
       throw createServiceError(
         409,
-        "These Evidence images are already attached to this Risk."
+        "These Evidence images are already attached to this Task."
       );
     }
 
@@ -566,30 +567,31 @@ export const addEvidenceImagesService =
 
       throw createServiceError(
         400,
-        `Maximum ${MAX_EVIDENCE_IMAGES} ${evidenceType} Evidence images are allowed per Risk. ${remainingSlots} upload slot${remainingSlots === 1 ? "" : "s"} remaining.`
+        `Maximum ${MAX_EVIDENCE_IMAGES} ${evidenceType} Evidence images are allowed per Task. ${remainingSlots} upload slot${remainingSlots === 1 ? "" : "s"} remaining.`
       );
     }
 
-    const riskRegisterId =
-      getOptionalRiskRegisterId(
-        risk.riskRegisterId
+    const taskRegisterId =
+      getOptionalTaskRegisterId(
+        task.taskRegisterId
       );
 
     const evidenceDocuments =
       newImagePaths.map(
         (imagePath) => ({
           projectId:
-            risk.projectId,
+            task.projectId,
 
           projectCode:
-            risk.projectCode,
+            task.projectCode,
 
           riskId:
-            risk._id,
+            task._id,
 
-          ...(riskRegisterId
+          ...(taskRegisterId
             ? {
-                riskRegisterId,
+                riskRegisterId:
+                  taskRegisterId,
               }
             : {}),
 
@@ -624,7 +626,7 @@ export const addEvidenceImagesService =
 
       await Evidence.deleteMany({
         riskId:
-          risk._id,
+          task._id,
 
         evidenceType,
 
@@ -648,14 +650,14 @@ export const addEvidenceImagesService =
     }
 
     const evidence =
-      await getRiskEvidencesService(
-        risk._id.toString()
+      await getTaskEvidencesService(
+        task._id.toString()
       );
 
     return {
-      risk:
-        buildRiskResponse(
-          risk
+      task:
+        buildTaskResponse(
+          task
         ),
 
       uploadedEvidence:
@@ -671,11 +673,11 @@ export const addEvidenceImagesService =
 
 export const addBeforeEvidenceService =
   async (
-    riskId,
+    taskId,
     imagePaths
   ) => {
     return addEvidenceImagesService({
-      riskId,
+      taskId,
 
       evidenceType:
         "before",
@@ -690,11 +692,11 @@ export const addBeforeEvidenceService =
 
 export const addAfterEvidenceService =
   async (
-    riskId,
+    taskId,
     imagePaths
   ) => {
     return addEvidenceImagesService({
-      riskId,
+      taskId,
 
       evidenceType:
         "after",
@@ -739,18 +741,18 @@ export const getEvidenceByIdService =
 
    Physical image file is deleted by controller.
 
-   Required Evidence removal from a completed Risk moves the
-   Risk back to In Progress.
+   Required Evidence removal from a completed Task moves the
+   Task back to In Progress.
    ========================================================= */
 
 export const deleteEvidenceService =
   async (
-    riskId,
+    taskId,
     evidenceId
   ) => {
-    const risk =
-      await getRiskRecord(
-        riskId
+    const task =
+      await getTaskRecord(
+        taskId
       );
 
     const normalizedEvidenceId =
@@ -765,18 +767,19 @@ export const deleteEvidenceService =
           normalizedEvidenceId,
 
         riskId:
-          risk._id,
+          task._id,
       });
 
     if (!evidence) {
       throw createServiceError(
         404,
-        "Evidence image was not found for this Risk."
+        "Evidence image was not found for this Task."
       );
     }
 
-    const riskRegisterId =
-      getOptionalRiskRegisterId(
+    const taskRegisterId =
+      getOptionalTaskRegisterId(
+        evidence.taskRegisterId ||
         evidence.riskRegisterId
       );
 
@@ -790,12 +793,13 @@ export const deleteEvidenceService =
       projectCode:
         evidence.projectCode,
 
-      riskId:
+      taskId:
+        evidence.taskId ||
         evidence.riskId,
 
-      ...(riskRegisterId
+      ...(taskRegisterId
         ? {
-            riskRegisterId,
+            taskRegisterId,
           }
         : {}),
 
@@ -814,9 +818,9 @@ export const deleteEvidenceService =
 
     await evidence.deleteOne();
 
-    const syncedRisk =
-      await syncRiskStatusWithEvidence(
-        risk._id.toString()
+    const syncedTask =
+      await syncTaskStatusWithEvidence(
+        task._id.toString()
       );
 
     return {
@@ -826,11 +830,13 @@ export const deleteEvidenceService =
       imagePath:
         deletedEvidence.imagePath,
 
-      risk:
-        syncedRisk.risk,
+      task:
+        syncedTask.task ||
+        syncedTask.risk,
 
       evidenceSummary:
-        syncedRisk.evidence,
+        syncedTask.evidenceSummary ||
+        syncedTask.evidence,
     };
   };
 
@@ -840,12 +846,12 @@ export const deleteEvidenceService =
 
 export const deleteEvidenceTypeService =
   async (
-    riskId,
+    taskId,
     requestedEvidenceType
   ) => {
-    const risk =
-      await getRiskRecord(
-        riskId
+    const task =
+      await getTaskRecord(
+        taskId
       );
 
     const evidenceType =
@@ -856,7 +862,7 @@ export const deleteEvidenceTypeService =
     const evidenceRecords =
       await Evidence.find({
         riskId:
-          risk._id,
+          task._id,
 
         evidenceType,
       })
@@ -894,14 +900,14 @@ export const deleteEvidenceTypeService =
     const deleteResult =
       await Evidence.deleteMany({
         riskId:
-          risk._id,
+          task._id,
 
         evidenceType,
       });
 
-    const syncedRisk =
-      await syncRiskStatusWithEvidence(
-        risk._id.toString()
+    const syncedTask =
+      await syncTaskStatusWithEvidence(
+        task._id.toString()
       );
 
     return {
@@ -913,10 +919,13 @@ export const deleteEvidenceTypeService =
 
       imagePaths,
 
-      risk:
-        syncedRisk.risk,
+      task:
+        syncedTask.task ||
+        syncedTask.risk,
 
       evidenceSummary:
-        syncedRisk.evidence,
+        syncedTask.evidenceSummary ||
+        syncedTask.evidence,
     };
   };
+

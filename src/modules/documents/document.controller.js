@@ -31,35 +31,36 @@ const sendSuccessResponse = (
 
    POST /api/v1/documents/generate
 
-   Existing Risk List se data export hoga.
+   Existing Task Register se data export hoga.
 
-   Risk records duplicate create nahi honge.
+   Task records duplicate create nahi honge.
 
-   Generated report aur uski history save hogi.
+   Generated PDF / DOCX / XLSX file aur uski history save hogi.
    ========================================================= */
 
-export const generateDocument = async (
-  req,
-  res,
-  next
-) => {
-  try {
-    const result =
-      await generateDocumentService(
-        req.body,
-        req.user
-      );
+export const generateDocument =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const result =
+        await generateDocumentService(
+          req.body,
+          req.user
+        );
 
-    return sendSuccessResponse(
-      res,
-      201,
-      "Document generated successfully.",
-      result
-    );
-  } catch (error) {
-    return next(error);
-  }
-};
+      return sendSuccessResponse(
+        res,
+        201,
+        "Document generated successfully.",
+        result
+      );
+    } catch (error) {
+      return next(error);
+    }
+  };
 
 /* =========================================================
    GET DOCUMENT HISTORY
@@ -67,29 +68,14 @@ export const generateDocument = async (
    GET /api/v1/documents
    ========================================================= */
 
-export const getDocuments = async (
-  req,
-  res,
-  next
-) => {
-  try {
-    const {
-      projectId,
-      search,
-      layout,
-      format,
-      status,
-      generatedBy,
-      dateFrom,
-      dateTo,
-      page,
-      limit,
-      sortBy,
-      sortOrder,
-    } = req.query ?? {};
-
-    const result =
-      await getDocumentsService({
+export const getDocuments =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
         projectId,
         search,
         layout,
@@ -102,18 +88,34 @@ export const getDocuments = async (
         limit,
         sortBy,
         sortOrder,
-      });
+      } = req.query ?? {};
 
-    return sendSuccessResponse(
-      res,
-      200,
-      "Document history retrieved successfully.",
-      result
-    );
-  } catch (error) {
-    return next(error);
-  }
-};
+      const result =
+        await getDocumentsService({
+          projectId,
+          search,
+          layout,
+          format,
+          status,
+          generatedBy,
+          dateFrom,
+          dateTo,
+          page,
+          limit,
+          sortBy,
+          sortOrder,
+        });
+
+      return sendSuccessResponse(
+        res,
+        200,
+        "Document history retrieved successfully.",
+        result
+      );
+    } catch (error) {
+      return next(error);
+    }
+  };
 
 /* =========================================================
    GET PROJECT DOCUMENT HISTORY
@@ -271,7 +273,8 @@ export const downloadDocument =
    - generated PDF, DOCX or XLSX file
    - Documents History database record
 
-   Original Risk List aur Evidence records delete nahi honge.
+   Original Project, Task Register aur Evidence records
+   delete nahi honge.
    ========================================================= */
 
 export const deleteDocument =

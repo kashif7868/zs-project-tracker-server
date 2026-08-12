@@ -386,6 +386,36 @@ const projectSchema =
       },
 
       /* ===================================================
+         LIFECYCLE TIMESTAMPS
+
+         Dates above define the planned/actual schedule.
+
+         These timestamps define operational lifecycle
+         actions. Project completion is NEVER inferred from
+         expectedCompletionDate.
+         =================================================== */
+
+      startedAt: {
+        type: Date,
+        default: null,
+      },
+
+      putOnHoldAt: {
+        type: Date,
+        default: null,
+      },
+
+      resumedAt: {
+        type: Date,
+        default: null,
+      },
+
+      archivedAt: {
+        type: Date,
+        default: null,
+      },
+
+      /* ===================================================
          STATUS
          =================================================== */
 
@@ -397,7 +427,6 @@ const projectSchema =
             "draft",
             "active",
             "on_hold",
-            "awaiting_verification",
             "completed",
             "archived",
           ],
@@ -933,6 +962,172 @@ projectSchema.pre(
         updateObject.overallRiskLevel
           .trim()
           .toLowerCase();
+    }
+  }
+);
+
+/* =========================================================
+   PROJECT LIFECYCLE / SCHEDULE VIRTUALS
+
+   Status and schedule are intentionally separate:
+
+   status:
+   draft | active | on_hold | completed | archived
+
+   scheduleStatus:
+   not_started | on_track | overdue | completed_early |
+   completed_on_time | completed_late | archived
+
+   Expected completion date crossing does NOT automatically
+   complete the project.
+   ========================================================= */
+
+projectSchema.virtual(
+  "scheduleStatus"
+).get(function getScheduleStatus() {
+  if (this.status === "archived") {
+    return "archived";
+  }
+
+  const now = new Date();
+
+  if (
+    this.status === "completed" &&
+    this.actualCompletionDate
+  ) {
+    if (!this.expectedCompletionDate) {
+      return "completed_on_time";
+    }
+
+    const actual =
+      new Date(
+        this.actualCompletionDate
+      ).getTime();
+
+    const expected =
+      new Date(
+        this.expectedCompletionDate
+      ).getTime();
+
+    if (actual < expected) {
+      return "completed_early";
+    }
+
+    if (actual > expected) {
+      return "completed_late";
+    }
+
+    return "completed_on_time";
+  }
+
+  if (
+    this.startDate &&
+    now <
+      new Date(this.startDate)
+  ) {
+    return "not_started";
+  }
+
+  if (
+    this.expectedCompletionDate &&
+    now >
+      new Date(
+        this.expectedCompletionDate
+      )
+  ) {
+    return "overdue";
+  }
+
+  return "on_track";
+});
+
+projectSchema.virtual(
+  "isOverdue"
+).get(function getIsOverdue() {
+  return (
+    this.status !== "completed" &&
+    this.status !== "archived" &&
+    Boolean(
+      this.expectedCompletionDate &&
+      new Date() >
+        new Date(
+          this.expectedCompletionDate
+        )
+    )
+  );
+});
+
+projectSchema.virtual(
+  "daysOverdue"
+).get(function getDaysOverdue() {
+  if (!this.isOverdue) {
+    return 0;
+  }
+
+  const difference =
+    Date.now() -
+    new Date(
+      this.expectedCompletionDate
+    ).getTime();
+
+  return Math.max(
+    0,
+    Math.ceil(
+      difference /
+        (1000 * 60 * 60 * 24)
+    )
+  );
+});
+
+/* =========================================================
+   LIFECYCLE CONSISTENCY
+
+   Service layer lifecycle actions will control status
+   transitions. This hook protects the stored dates if a
+   document is saved directly.
+
+   - completed => actualCompletionDate exists
+   - non-completed => actualCompletionDate cleared
+   - archived => archivedAt exists
+
+   Progress is NOT forced to 100 here because project
+   progress belongs to task/work completion, not merely to
+   the status field.
+   ========================================================= */
+
+projectSchema.pre(
+  "validate",
+  function normalizeLifecycleDates() {
+    if (
+      this.status === "completed" &&
+      !this.actualCompletionDate
+    ) {
+      this.actualCompletionDate =
+        new Date();
+    }
+
+    if (
+      this.status !== "completed" &&
+      this.actualCompletionDate
+    ) {
+      this.actualCompletionDate =
+        null;
+    }
+
+    if (
+      this.status === "archived" &&
+      !this.archivedAt
+    ) {
+      this.archivedAt =
+        new Date();
+    }
+
+    if (
+      this.status !== "archived" &&
+      this.archivedAt
+    ) {
+      this.archivedAt =
+        null;
     }
   }
 );

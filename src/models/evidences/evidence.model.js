@@ -3,23 +3,36 @@ import mongoose from "mongoose";
 const { Schema } = mongoose;
 
 /* =========================================================
-   EVIDENCE MODEL
+   TASK EVIDENCE MODEL
 
-   Locked fields:
+   Canonical application terminology:
 
    projectId
    projectCode
-   riskId
-   riskRegisterId optional
+   taskId
+   taskRegisterId optional
    evidenceType
    imagePath
 
-   Supported images:
+   IMPORTANT MIGRATION COMPATIBILITY:
 
-   JPG
-   JPEG
-   PNG
-   WEBP
+   Existing MongoDB collection:
+   risk_evidences
+
+   Existing physical DB fields:
+   riskId
+   riskRegisterId
+
+   Existing image folders:
+   /uploads/risks/before/
+   /uploads/risks/after/
+
+   These physical names are temporarily preserved so existing
+   evidence records and image files do not break.
+
+   New application code can use:
+   taskId
+   taskRegisterId
    ========================================================= */
 
 const evidenceSchema =
@@ -48,11 +61,6 @@ const evidenceSchema =
 
       /* =====================================================
          PROJECT REFERENCE NUMBER
-
-         Database compatibility ke liye field ka naam
-         projectCode rahega.
-
-         Risk ke selected Project se automatically fetch hoga.
          ===================================================== */
 
       projectCode: {
@@ -82,7 +90,15 @@ const evidenceSchema =
       },
 
       /* =====================================================
-         RISK REFERENCE
+         TASK REFERENCE
+
+         Canonical property:
+         taskId
+
+         Existing physical MongoDB field:
+         riskId
+
+         Alias keeps old evidence records compatible.
          ===================================================== */
 
       riskId: {
@@ -90,11 +106,14 @@ const evidenceSchema =
           Schema.Types.ObjectId,
 
         ref:
-          "Risk",
+          "Task",
+
+        alias:
+          "taskId",
 
         required: [
           true,
-          "Risk ID is required.",
+          "Task ID is required.",
         ],
 
         immutable: true,
@@ -103,19 +122,20 @@ const evidenceSchema =
       },
 
       /* =====================================================
-         RISK REGISTER ID
+         TASK REGISTER ID
 
-         Optional field.
+         Canonical property:
+         taskRegisterId
 
-         Risk par Risk Register ID available ho to Evidence
-         record mein copy hogi.
-
-         Project setting disabled ho ya Risk Register ID blank
-         ho to yeh field absent reh sakti hai.
+         Existing physical MongoDB field:
+         riskRegisterId
          ===================================================== */
 
       riskRegisterId: {
         type: String,
+
+        alias:
+          "taskRegisterId",
 
         required: false,
 
@@ -126,7 +146,7 @@ const evidenceSchema =
 
         maxlength: [
           100,
-          "Risk Register ID cannot exceed 100 characters.",
+          "Task Register ID cannot exceed 100 characters.",
         ],
 
         index: true,
@@ -134,9 +154,6 @@ const evidenceSchema =
 
       /* =====================================================
          EVIDENCE TYPE
-
-         before
-         after
          ===================================================== */
 
       evidenceType: {
@@ -165,10 +182,14 @@ const evidenceSchema =
       /* =====================================================
          IMAGE PATH
 
-         Examples:
+         Canonical locations for NEW Evidence records:
 
-         /uploads/risks/before/before-image.jpg
-         /uploads/risks/after/after-image.png
+         /uploads/tasks/before/...
+         /uploads/tasks/after/...
+
+         Existing database records that already contain
+         /uploads/risks/... remain readable during migration,
+         but new records cannot use the legacy folder.
          ===================================================== */
 
       imagePath: {
@@ -189,14 +210,14 @@ const evidenceSchema =
               return (
                 typeof value ===
                   "string" &&
-                /^\/uploads\/risks\/(before|after)\/[^/]+\.(jpg|jpeg|png|webp)$/i.test(
+                /^\/uploads\/tasks\/(before|after)\/[^/]+\.(jpg|jpeg|png|webp)$/i.test(
                   value
                 )
               );
             },
 
             message:
-              "Evidence must be a JPG, JPEG, PNG or WEBP image inside the Risk uploads folder.",
+              "Evidence must be a JPG, JPEG, PNG or WEBP image inside the Task evidence uploads folder.",
           },
 
           {
@@ -221,15 +242,24 @@ const evidenceSchema =
 
       strict: true,
 
+      /*
+        Existing MongoDB collection preserved.
+      */
       collection:
         "risk_evidences",
+
+      toJSON: {
+        virtuals: true,
+      },
+
+      toObject: {
+        virtuals: true,
+      },
     }
   );
 
 /* =========================================================
    NORMALIZE DATA
-
-   Mongoose 9 compatible.
    ========================================================= */
 
 evidenceSchema.pre(
@@ -249,13 +279,13 @@ evidenceSchema.pre(
       typeof this.riskRegisterId ===
       "string"
     ) {
-      const normalizedRiskRegisterId =
+      const normalizedTaskRegisterId =
         this.riskRegisterId
           .trim()
           .toUpperCase();
 
       this.riskRegisterId =
-        normalizedRiskRegisterId ||
+        normalizedTaskRegisterId ||
         undefined;
     }
 
@@ -298,13 +328,17 @@ evidenceSchema.pre(
 );
 
 /* =========================================================
-   BEFORE/AFTER FOLDER VALIDATION
+   BEFORE / AFTER FOLDER VALIDATION
 
-   Before Evidence:
-   /uploads/risks/before/
+   All NEW Evidence records must point to the canonical Task
+   Evidence folders:
 
-   After Evidence:
-   /uploads/risks/after/
+   /uploads/tasks/before/
+   /uploads/tasks/after/
+
+   IMPORTANT:
+   Existing legacy MongoDB records containing /uploads/risks
+   are not rewritten by this model. They remain readable.
    ========================================================= */
 
 evidenceSchema.pre(
@@ -317,17 +351,17 @@ evidenceSchema.pre(
       return;
     }
 
-    const requiredFolder =
-      `/uploads/risks/${this.evidenceType}/`;
+    const taskFolder =
+      `/uploads/tasks/${this.evidenceType}/`;
 
     if (
       !this.imagePath.startsWith(
-        requiredFolder
+        taskFolder
       )
     ) {
       this.invalidate(
         "imagePath",
-        `${this.evidenceType} Evidence image must be stored inside ${requiredFolder}`
+        `${this.evidenceType} Evidence image must be stored inside ${taskFolder}`
       );
     }
   }
@@ -335,8 +369,6 @@ evidenceSchema.pre(
 
 /* =========================================================
    QUERY UPDATE VALIDATION
-
-   riskRegisterId synchronization ke waqt validators run honge.
    ========================================================= */
 
 evidenceSchema.pre(
@@ -356,7 +388,8 @@ evidenceSchema.pre(
 /* =========================================================
    QUERY UPDATE NORMALIZATION
 
-   Risk Register ID update/remove synchronization support.
+   New code may send taskRegisterId.
+   Existing physical field remains riskRegisterId.
    ========================================================= */
 
 evidenceSchema.pre(
@@ -378,6 +411,20 @@ evidenceSchema.pre(
       update;
 
     if (
+      Object.prototype
+        .hasOwnProperty.call(
+          directUpdate,
+          "taskRegisterId"
+        )
+    ) {
+      directUpdate.riskRegisterId =
+        directUpdate.taskRegisterId;
+
+      delete directUpdate
+        .taskRegisterId;
+    }
+
+    if (
       typeof directUpdate
         .projectCode ===
       "string"
@@ -393,16 +440,16 @@ evidenceSchema.pre(
         .riskRegisterId ===
       "string"
     ) {
-      const normalizedRiskRegisterId =
+      const normalizedTaskRegisterId =
         directUpdate.riskRegisterId
           .trim()
           .toUpperCase();
 
       if (
-        normalizedRiskRegisterId
+        normalizedTaskRegisterId
       ) {
         directUpdate.riskRegisterId =
-          normalizedRiskRegisterId;
+          normalizedTaskRegisterId;
       } else {
         delete directUpdate
           .riskRegisterId;
@@ -439,8 +486,7 @@ evidenceSchema.pre(
 /* =========================================================
    PREVENT DUPLICATE IMAGE RECORD
 
-   Same Risk mein same Before/After image path dobara save
-   nahi ho sakega.
+   Physical DB field riskId preserved.
    ========================================================= */
 
 evidenceSchema.index(
@@ -458,7 +504,10 @@ evidenceSchema.index(
 );
 
 /* =========================================================
-   RISK EVIDENCE FETCH INDEX
+   TASK EVIDENCE FETCH INDEX
+
+   Existing index keys/names are preserved where practical so
+   current database deployment remains safe.
    ========================================================= */
 
 evidenceSchema.index(
@@ -474,7 +523,7 @@ evidenceSchema.index(
 );
 
 /* =========================================================
-   PROJECT EVIDENCE FETCH INDEX
+   PROJECT TASK EVIDENCE INDEX
    ========================================================= */
 
 evidenceSchema.index(
@@ -491,16 +540,33 @@ evidenceSchema.index(
 
 /* =========================================================
    JSON RESPONSE
+
+   Canonical response exposes:
+   taskId
+   taskRegisterId
+
+   Legacy keys remain temporarily available during migration.
    ========================================================= */
 
 evidenceSchema.set(
   "toJSON",
   {
+    virtuals: true,
+
     transform(
       _document,
       returnedObject
     ) {
       delete returnedObject.__v;
+
+      returnedObject.taskId =
+        returnedObject.taskId ||
+        returnedObject.riskId;
+
+      returnedObject.taskRegisterId =
+        returnedObject.taskRegisterId ||
+        returnedObject.riskRegisterId ||
+        undefined;
 
       return returnedObject;
     },
@@ -509,14 +575,26 @@ evidenceSchema.set(
 
 /* =========================================================
    MODEL EXPORT
+
+   Application model:
+   Evidence
+
+   Existing MongoDB collection:
+   risk_evidences
+
+   Existing Mongoose model name RiskEvidence may already exist
+   during hot reload, so both names are handled safely.
    ========================================================= */
 
 const Evidence =
   mongoose.models
+    .TaskEvidence ||
+  mongoose.models
     .RiskEvidence ||
   mongoose.model(
-    "RiskEvidence",
-    evidenceSchema
+    "TaskEvidence",
+    evidenceSchema,
+    "risk_evidences"
   );
 
 export default Evidence;

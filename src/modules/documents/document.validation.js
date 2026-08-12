@@ -10,7 +10,7 @@ import mongoose from "mongoose";
 import {
   DOCUMENT_FORMATS,
   DOCUMENT_LAYOUTS,
-  DOCUMENT_RISK_STATUS_FILTERS,
+  DOCUMENT_TASK_STATUS_FILTERS,
   DOCUMENT_STATUSES,
 } from "../../models/documents/document.model.js";
 
@@ -30,13 +30,12 @@ const CREATE_ALLOWED_FIELDS = [
 const FILTER_ALLOWED_FIELDS = [
   "statusFilter",
   "includeProjectDetails",
-  "includeRiskRegisterId",
-  "includeBeforeEvidence",
+    "includeBeforeEvidence",
   "includeAfterEvidence",
   "includeEvidenceImages",
   "dateFrom",
   "dateTo",
-  "selectedRiskIds",
+  "selectedTaskIds",
   "sortBy",
   "sortOrder",
 ];
@@ -46,7 +45,7 @@ const SYSTEM_MANAGED_FIELDS = [
   "projectReferenceNo",
   "projectTitle",
   "status",
-  "exportedRiskIds",
+  "exportedTaskIds",
   "summary",
   "fileName",
   "filePath",
@@ -68,7 +67,7 @@ const DOCUMENT_SORT_FIELDS = [
   "layout",
 ];
 
-const RISK_SORT_FIELDS = [
+const TASK_SORT_FIELDS = [
   "serialNo",
   "createdAt",
   "updatedAt",
@@ -80,7 +79,7 @@ const SORT_ORDERS = [
   "desc",
 ];
 
-const MAX_SELECTED_RISKS = 5000;
+const MAX_SELECTED_TASKS = 5000;
 
 /* =========================================================
    HELPERS
@@ -348,13 +347,10 @@ const validateProjectIdBody =
 
 const validateTitle =
   body("title")
-    .exists({
+    .optional({
+      nullable: true,
       checkFalsy: true,
     })
-    .withMessage(
-      "Report title is required."
-    )
-    .bail()
     .isString()
     .withMessage(
       "Report title must be text."
@@ -366,7 +362,7 @@ const validateTitle =
       max: 250,
     })
     .withMessage(
-      "Report title must contain between 3 and 250 characters."
+      "Report title must contain between 3 and 250 characters when provided."
     );
 
 /* =========================================================
@@ -444,10 +440,10 @@ const validateLayout =
       DOCUMENT_LAYOUTS
     )
     .withMessage(
-      "Report layout must be risk_register, detailed_evidence or summary."
+      "Report layout must be task_register, detailed_evidence or summary."
     )
     .default(
-      "risk_register"
+      "task_register"
     );
 
 /* =========================================================
@@ -491,7 +487,7 @@ const validateStatusFilter =
       normalizeLowercaseText
     )
     .isIn(
-      DOCUMENT_RISK_STATUS_FILTERS
+      DOCUMENT_TASK_STATUS_FILTERS
     )
     .withMessage(
       "Status filter must be all, in_progress or complete."
@@ -654,40 +650,40 @@ const validateDateTo =
     );
 
 /* =========================================================
-   SELECTED RISK IDS
+   SELECTED TASK IDS
    ========================================================= */
 
-const validateSelectedRiskIds = [
+const validateSelectedTaskIds = [
   body(
-    "filters.selectedRiskIds"
+    "filters.selectedTaskIds"
   )
     .optional()
     .isArray({
       max:
-        MAX_SELECTED_RISKS,
+        MAX_SELECTED_TASKS,
     })
     .withMessage(
-      `Selected Risk IDs must be an array containing no more than ${MAX_SELECTED_RISKS} records.`
+      `Selected Task IDs must be an array containing no more than ${MAX_SELECTED_TASKS} records.`
     )
     .customSanitizer(
       removeDuplicateIds
     ),
 
   body(
-    "filters.selectedRiskIds.*"
+    "filters.selectedTaskIds.*"
   )
     .optional()
     .custom(
-      (riskId) => {
+      (taskId) => {
         if (
-          typeof riskId !==
+          typeof taskId !==
             "string" ||
           !mongoose.isValidObjectId(
-            riskId.trim()
+            taskId.trim()
           )
         ) {
           throw new Error(
-            "One or more selected Risk IDs are invalid."
+            "One or more selected Task IDs are invalid."
           );
         }
 
@@ -700,10 +696,10 @@ const validateSelectedRiskIds = [
 ];
 
 /* =========================================================
-   RISK SORTING OPTIONS
+   TASK SORTING OPTIONS
    ========================================================= */
 
-const validateRiskSortBy =
+const validateTaskSortBy =
   body(
     "filters.sortBy"
   )
@@ -712,16 +708,16 @@ const validateRiskSortBy =
       normalizeText
     )
     .isIn(
-      RISK_SORT_FIELDS
+      TASK_SORT_FIELDS
     )
     .withMessage(
-      "Risk sort field must be serialNo, createdAt, updatedAt or status."
+      "Task sort field must be serialNo, createdAt, updatedAt or status."
     )
     .default(
       "serialNo"
     );
 
-const validateRiskSortOrder =
+const validateTaskSortOrder =
   body(
     "filters.sortOrder"
   )
@@ -733,7 +729,7 @@ const validateRiskSortOrder =
       SORT_ORDERS
     )
     .withMessage(
-      "Risk sort order must be asc or desc."
+      "Task sort order must be asc or desc."
     )
     .default(
       "asc"
@@ -763,11 +759,6 @@ export const validateGenerateDocument = [
   ),
 
   validateBooleanFilter(
-    "filters.includeRiskRegisterId",
-    "Include Risk Register ID"
-  ),
-
-  validateBooleanFilter(
     "filters.includeBeforeEvidence",
     "Include Before Evidence"
   ),
@@ -785,10 +776,10 @@ export const validateGenerateDocument = [
   validateDateFrom,
   validateDateTo,
 
-  ...validateSelectedRiskIds,
+  ...validateSelectedTaskIds,
 
-  validateRiskSortBy,
-  validateRiskSortOrder,
+  validateTaskSortBy,
+  validateTaskSortOrder,
 
   handleValidationErrors,
 ];

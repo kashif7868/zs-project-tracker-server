@@ -3,11 +3,19 @@ import {
   getProjectsService,
   getProjectByIdService,
   updateProjectService,
+
+  startProjectService,
+  putProjectOnHoldService,
+  resumeProjectService,
+  completeProjectService,
+  reopenProjectService,
+
   archiveProjectService,
   permanentlyDeleteProjectService,
   regenerateClientAccessTokenService,
   revokeClientAccessService,
   getProjectByAccessTokenService,
+  getPublicProjectTasksService,
 } from "./project.service.js";
 
 /* =========================================================
@@ -62,11 +70,6 @@ const getProjectReferenceNo = (
 
    Permission:
    projects.create
-
-   Project Reference Number backend automatically generate
-   karega.
-
-   Frontend projectCode send nahi karega.
    ========================================================= */
 
 export const createProject =
@@ -197,19 +200,16 @@ export const getProjectById =
   };
 
 /* =========================================================
-   UPDATE PROJECT
+   UPDATE PROJECT DETAILS
 
    PATCH /api/v1/projects/:projectId
 
    Permission:
    projects.update
 
-   Protected fields:
-
-   projectCode
-   projectReferenceNo
-
-   Dono update nahi hongay.
+   Lifecycle status is NOT changed here.
+   Start/Hold/Resume/Complete/Reopen actions use dedicated
+   endpoints.
    ========================================================= */
 
 export const updateProject =
@@ -251,9 +251,253 @@ export const updateProject =
   };
 
 /* =========================================================
+   START PROJECT
+
+   PATCH /api/v1/projects/:projectId/start
+
+   draft -> active
+
+   Permission:
+   projects.update
+   ========================================================= */
+
+export const startProject =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
+        projectId,
+      } = req.params;
+
+      const userId =
+        getAuthenticatedUserId(
+          req
+        );
+
+      const project =
+        await startProjectService(
+          projectId,
+          userId
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Project started successfully",
+
+          data: project,
+        });
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+/* =========================================================
+   PUT PROJECT ON HOLD
+
+   PATCH /api/v1/projects/:projectId/hold
+
+   active -> on_hold
+
+   Permission:
+   projects.update
+   ========================================================= */
+
+export const putProjectOnHold =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
+        projectId,
+      } = req.params;
+
+      const userId =
+        getAuthenticatedUserId(
+          req
+        );
+
+      const project =
+        await putProjectOnHoldService(
+          projectId,
+          userId
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Project put on hold successfully",
+
+          data: project,
+        });
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+/* =========================================================
+   RESUME PROJECT
+
+   PATCH /api/v1/projects/:projectId/resume
+
+   on_hold -> active
+
+   Permission:
+   projects.update
+   ========================================================= */
+
+export const resumeProject =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
+        projectId,
+      } = req.params;
+
+      const userId =
+        getAuthenticatedUserId(
+          req
+        );
+
+      const project =
+        await resumeProjectService(
+          projectId,
+          userId
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Project resumed successfully",
+
+          data: project,
+        });
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+/* =========================================================
+   MARK PROJECT COMPLETED
+
+   PATCH /api/v1/projects/:projectId/complete
+
+   active / on_hold -> completed
+
+   actualCompletionDate backend automatically sets.
+
+   Permission:
+   projects.update
+   ========================================================= */
+
+export const completeProject =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
+        projectId,
+      } = req.params;
+
+      const userId =
+        getAuthenticatedUserId(
+          req
+        );
+
+      const project =
+        await completeProjectService(
+          projectId,
+          userId
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Project marked as completed successfully",
+
+          data: project,
+        });
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+/* =========================================================
+   REOPEN PROJECT
+
+   PATCH /api/v1/projects/:projectId/reopen
+
+   completed -> active
+
+   Permission:
+   projects.update
+   ========================================================= */
+
+export const reopenProject =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
+        projectId,
+      } = req.params;
+
+      const userId =
+        getAuthenticatedUserId(
+          req
+        );
+
+      const project =
+        await reopenProjectService(
+          projectId,
+          userId
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Project reopened successfully",
+
+          data: project,
+        });
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+/* =========================================================
    ARCHIVE PROJECT
 
    PATCH /api/v1/projects/:projectId/archive
+
+   completed -> archived
 
    Permission:
    projects.archive
@@ -396,8 +640,7 @@ export const regenerateClientAccessToken =
 /* =========================================================
    REVOKE CLIENT ACCESS
 
-   PATCH
-   /api/v1/projects/:projectId/client-access/revoke
+   PATCH /api/v1/projects/:projectId/client-access/revoke
 
    Permission:
    projects.client_access
@@ -458,10 +701,7 @@ export const revokeClientAccess =
 /* =========================================================
    PUBLIC PROJECT ACCESS
 
-   GET
-   /api/v1/projects/public/access/:accessToken
-
-   Public route through secure token.
+   GET /api/v1/projects/public/access/:accessToken
    ========================================================= */
 
 export const getPublicProjectByAccessToken =
@@ -509,3 +749,75 @@ export const getPublicProjectByAccessToken =
       return next(error);
     }
   };
+
+/* =========================================================
+   PUBLIC PROJECT TASK REGISTER
+
+   GET /api/v1/projects/public/access/:accessToken/tasks
+
+   Public / read-only endpoint.
+
+   Authorization header required nahi hai.
+   Client access token hi access authorize karega.
+
+   Response:
+   - current Project ke Tasks
+   - continuous displaySrNo
+   - Before Evidence
+   - After Evidence
+   - status
+   - description
+   ========================================================= */
+
+export const getPublicProjectTasks =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
+        accessToken,
+      } = req.params;
+
+      if (
+        typeof accessToken !==
+          "string" ||
+        !accessToken.trim()
+      ) {
+        const error =
+          new Error(
+            "Project access token is required"
+          );
+
+        error.statusCode = 400;
+
+        throw error;
+      }
+
+      const result =
+        await getPublicProjectTasksService(
+          accessToken.trim()
+        );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Public Task Register fetched successfully",
+
+          data: {
+            tasks:
+              result.tasks,
+
+            pagination:
+              result.pagination,
+          },
+        });
+    } catch (error) {
+      return next(error);
+    }
+  };
+

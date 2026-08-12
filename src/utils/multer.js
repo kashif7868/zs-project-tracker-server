@@ -36,24 +36,45 @@ const publicDirectory = path.join(
 );
 
 /* =========================================================
-   RISK EVIDENCE DIRECTORIES
+   TASK EVIDENCE DIRECTORIES
+
+   ALL NEW EVIDENCE uploads are written only to:
+
+   public/uploads/tasks/before
+   public/uploads/tasks/after
+
+   Legacy /uploads/risks is NEVER used as an upload destination.
    ========================================================= */
 
-const riskUploadDirectory = path.join(
+const taskUploadDirectory = path.join(
+  publicDirectory,
+  "uploads",
+  "tasks"
+);
+
+const beforeUploadDirectory = path.join(
+  taskUploadDirectory,
+  "before"
+);
+
+const afterUploadDirectory = path.join(
+  taskUploadDirectory,
+  "after"
+);
+
+const legacyRiskUploadDirectory = path.join(
   publicDirectory,
   "uploads",
   "risks"
 );
 
-const beforeUploadDirectory = path.join(
-  riskUploadDirectory,
-  "before"
-);
+/*
+  Read/delete compatibility only.
 
-const afterUploadDirectory = path.join(
-  riskUploadDirectory,
-  "after"
-);
+  IMPORTANT:
+  This directory is not used by any Multer storage destination.
+*/
+
 
 /* =========================================================
    USER AVATAR DIRECTORIES
@@ -128,7 +149,7 @@ const ALLOWED_IMAGE_MIME_TYPES =
 
    public/
    └── uploads/
-       ├── risks/
+       ├── tasks/
        │   ├── before/
        │   └── after/
        └── users/
@@ -140,7 +161,7 @@ const createUploadDirectories =
     const directories = [
       publicDirectory,
 
-      riskUploadDirectory,
+      taskUploadDirectory,
       beforeUploadDirectory,
       afterUploadDirectory,
 
@@ -234,7 +255,8 @@ const createSafeFileValue = (
 const createUniqueId = () => {
   return crypto
     .randomUUID()
-    .replaceAll("-", "");
+    .split("-")
+    .join("");
 };
 
 /* =========================================================
@@ -242,8 +264,8 @@ const createUniqueId = () => {
 
    Examples:
 
-   before-RISK_ID-1720000000000-UUID.jpg
-   after-RISK_ID-1720000000000-UUID.webp
+   before-TASK_ID-1720000000000-UUID.jpg
+   after-TASK_ID-1720000000000-UUID.webp
    ========================================================= */
 
 const createEvidenceFileName = (
@@ -256,16 +278,19 @@ const createEvidenceFileName = (
       file.mimetype
     ];
 
-  const riskId =
+  const taskId =
     createSafeFileValue(
-      req.params?.riskId,
-      "risk"
+      String(
+        req.params?.taskId ||
+        "task"
+      ),
+      "task"
     );
 
   return (
     [
       evidenceType,
-      riskId,
+      taskId,
       Date.now(),
       createUniqueId(),
     ].join("-") +
@@ -320,6 +345,15 @@ const createAvatarFileName = (
 const createEvidenceStorage = (
   evidenceType
 ) => {
+  if (
+    evidenceType !== "before" &&
+    evidenceType !== "after"
+  ) {
+    throw new Error(
+      "Evidence type must be before or after."
+    );
+  }
+
   const destination =
     evidenceType === "before"
       ? beforeUploadDirectory
@@ -458,6 +492,43 @@ const userAvatarMulter =
         MAX_AVATAR_IMAGES,
     },
   });
+
+/* =========================================================
+   TASK ID GUARD FOR EVIDENCE UPLOAD
+
+   Canonical Evidence upload routes must provide:
+
+   :taskId
+
+   This prevents legacy /risk/:riskId routes from silently
+   writing new files with generic names.
+   ========================================================= */
+
+export const requireTaskIdForEvidenceUpload =
+  (
+    req,
+    res,
+    next
+  ) => {
+    const taskId =
+      String(
+        req.params?.taskId ||
+        ""
+      ).trim();
+
+    if (!taskId) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Task ID is required for Evidence upload.",
+        });
+    }
+
+    return next();
+  };
 
 /* =========================================================
    EVIDENCE UPLOAD MIDDLEWARE
@@ -792,10 +863,8 @@ export const getUploadedImagePaths = (
               return "";
             }
 
-            return `/${relativeFilePath.replaceAll(
-              "\\",
-              "/"
-            )}`;
+            return `/${relativeFilePath.split("\\")
+              .join("/")}`;
           }
         )
         .filter(Boolean)
@@ -857,10 +926,8 @@ const deleteFileInsideDirectory =
     const cleanImagePath =
       imagePath
         .trim()
-        .replaceAll(
-          "\\",
-          "/"
-        )
+        .split("\\")
+        .join("/")
         .replace(
           /^\/+/,
           ""
@@ -916,19 +983,35 @@ const deleteFileInsideDirectory =
   };
 
 /* =========================================================
-   DELETE ONE RISK EVIDENCE IMAGE
+   DELETE ONE TASK EVIDENCE IMAGE
 
-   Existing Evidence services ke liye.
+   New Task folder is primary.
+
+   Legacy /uploads/risks is supported only for deleting old
+   evidence records created before migration.
    ========================================================= */
 
 export const deleteUploadedImage =
   async (
     imagePath
   ) => {
+    const deletedFromTaskFolder =
+      await deleteFileInsideDirectory(
+        imagePath,
+        taskUploadDirectory,
+        "Task evidence image"
+      );
+
+    if (
+      deletedFromTaskFolder
+    ) {
+      return true;
+    }
+
     return deleteFileInsideDirectory(
       imagePath,
-      riskUploadDirectory,
-      "Evidence image"
+      legacyRiskUploadDirectory,
+      "Legacy evidence image"
     );
   };
 
@@ -1018,9 +1101,15 @@ export const imageUploadPaths = {
   projectRoot,
   publicDirectory,
 
-  riskUploadDirectory,
+  taskUploadDirectory,
   beforeUploadDirectory,
   afterUploadDirectory,
+
+  /*
+    Temporary legacy path. Remove after old evidence files have
+    been migrated or are no longer referenced.
+  */
+  legacyRiskUploadDirectory,
 
   userUploadDirectory,
   avatarUploadDirectory,

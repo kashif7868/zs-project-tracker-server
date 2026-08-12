@@ -44,7 +44,7 @@ router.use(
 
    POST /api/v1/documents/generate
 
-   Existing Risk List se selected Project ka data export hoga.
+   Existing Task Register se selected Project ka data export hoga.
 
    Supported formats:
 
@@ -52,7 +52,7 @@ router.use(
    docx
    xlsx
 
-   Risk records duplicate create nahi honge.
+   Task records duplicate create nahi honge.
    Generated file aur report history save hogi.
    ========================================================= */
 
@@ -191,7 +191,7 @@ router.get(
    Does not delete:
 
    - Project
-   - Risk records
+   - Task Register records
    - Before Evidence
    - After Evidence
    ========================================================= */

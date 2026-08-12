@@ -9,7 +9,7 @@ import {
   deleteEvidenceTypeService,
   getEvidenceByIdService,
   getEvidenceByTypeService,
-  getRiskEvidencesService,
+  getTaskEvidencesService,
 } from "./evidence.service.js";
 
 /* =========================================================
@@ -46,7 +46,14 @@ const publicDirectory =
     "public"
   );
 
-const riskUploadDirectory =
+const taskUploadDirectory =
+  path.resolve(
+    publicDirectory,
+    "uploads",
+    "tasks"
+  );
+
+const legacyRiskUploadDirectory =
   path.resolve(
     publicDirectory,
     "uploads",
@@ -168,13 +175,13 @@ const normalizeImagePaths = (
 /* =========================================================
    CONVERT PHYSICAL PATH TO PUBLIC PATH
 
-   Physical path:
+   New physical path:
 
-   backend/public/uploads/risks/before/image.jpg
+   backend/public/uploads/tasks/before/image.jpg
 
-   Database path:
+   New database path:
 
-   /uploads/risks/before/image.jpg
+   /uploads/tasks/before/image.jpg
    ========================================================= */
 
 const convertToPublicImagePath = (
@@ -272,8 +279,18 @@ const getUploadedImagePaths = (
   req,
   evidenceType
 ) => {
-  const expectedFolder =
-    `/uploads/risks/${evidenceType}/`;
+  /*
+    IMPORTANT:
+
+    New uploads are accepted ONLY from the canonical Task
+    Evidence directories.
+
+    Legacy /uploads/risks paths remain supported elsewhere
+    only for reading/deleting old database records.
+  */
+
+  const allowedFolder =
+    `/uploads/tasks/${evidenceType}/`;
 
   const imagePaths =
     getAllUploadedImagePaths(
@@ -281,7 +298,7 @@ const getUploadedImagePaths = (
     ).filter(
       (imagePath) =>
         imagePath.startsWith(
-          expectedFolder
+          allowedFolder
         )
     );
 
@@ -291,10 +308,40 @@ const getUploadedImagePaths = (
 };
 
 /* =========================================================
+   ASSERT CANONICAL TASK EVIDENCE PATHS
+
+   Prevents any new DB Evidence record from being created with
+   an old /uploads/risks path.
+   ========================================================= */
+
+const assertCanonicalTaskEvidencePaths = (
+  imagePaths,
+  evidenceType
+) => {
+  const requiredPrefix =
+    `/uploads/tasks/${evidenceType}/`;
+
+  const invalidPath =
+    imagePaths.find(
+      (imagePath) =>
+        !imagePath.startsWith(
+          requiredPrefix
+        )
+    );
+
+  if (invalidPath) {
+    throw createHttpError(
+      500,
+      `Evidence upload path is invalid. Expected ${requiredPrefix}`
+    );
+  }
+};
+
+/* =========================================================
    DELETE PHYSICAL IMAGE
 
-   Sirf backend/public/uploads/risks ke andar wali local
-   files physically delete ho sakti hain.
+   Sirf backend/public/uploads/tasks ya legacy uploads/risks
+   ke andar wali local files physically delete ho sakti hain.
    ========================================================= */
 
 const deletePhysicalImage =
@@ -344,23 +391,34 @@ const deletePhysicalImage =
         cleanImagePath
       );
 
-    const relativeRiskPath =
-      path.relative(
-        riskUploadDirectory,
-        absoluteImagePath
-      );
+    const allowedUploadDirectories = [
+      taskUploadDirectory,
+      legacyRiskUploadDirectory,
+    ];
 
-    const isOutsideRiskFolder =
-      !relativeRiskPath ||
-      relativeRiskPath.startsWith(
-        ".."
-      ) ||
-      path.isAbsolute(
-        relativeRiskPath
+    const isInsideAllowedFolder =
+      allowedUploadDirectories.some(
+        (uploadDirectory) => {
+          const relativePath =
+            path.relative(
+              uploadDirectory,
+              absoluteImagePath
+            );
+
+          return (
+            Boolean(relativePath) &&
+            !relativePath.startsWith(
+              ".."
+            ) &&
+            !path.isAbsolute(
+              relativePath
+            )
+          );
+        }
       );
 
     if (
-      isOutsideRiskFolder
+      !isInsideAllowedFolder
     ) {
       return false;
     }
@@ -463,12 +521,12 @@ const cleanupFailedUpload =
   };
 
 /* =========================================================
-   GET ALL EVIDENCE FOR ONE RISK
+   GET ALL EVIDENCE FOR ONE TASK
 
-   GET /api/v1/evidences/risk/:riskId
+   GET /api/v1/evidences/task/:taskId
    ========================================================= */
 
-export const getRiskEvidences =
+export const getTaskEvidences =
   async (
     req,
     res,
@@ -476,14 +534,14 @@ export const getRiskEvidences =
   ) => {
     try {
       const evidence =
-        await getRiskEvidencesService(
-          req.params.riskId
+        await getTaskEvidencesService(
+          req.params.taskId
         );
 
       return sendSuccessResponse(
         res,
         200,
-        "Risk Evidence retrieved successfully.",
+        "Task Evidence retrieved successfully.",
         {
           evidence,
         }
@@ -498,7 +556,7 @@ export const getRiskEvidences =
 /* =========================================================
    GET BEFORE EVIDENCE
 
-   GET /api/v1/evidences/risk/:riskId/before
+   GET /api/v1/evidences/task/:taskId/before
    ========================================================= */
 
 export const getBeforeEvidences =
@@ -510,7 +568,7 @@ export const getBeforeEvidences =
     try {
       const result =
         await getEvidenceByTypeService(
-          req.params.riskId,
+          req.params.taskId,
           "before"
         );
 
@@ -530,7 +588,7 @@ export const getBeforeEvidences =
 /* =========================================================
    GET AFTER EVIDENCE
 
-   GET /api/v1/evidences/risk/:riskId/after
+   GET /api/v1/evidences/task/:taskId/after
    ========================================================= */
 
 export const getAfterEvidences =
@@ -542,7 +600,7 @@ export const getAfterEvidences =
     try {
       const result =
         await getEvidenceByTypeService(
-          req.params.riskId,
+          req.params.taskId,
           "after"
         );
 
@@ -595,7 +653,7 @@ export const getEvidenceById =
 /* =========================================================
    ADD BEFORE EVIDENCE
 
-   POST /api/v1/evidences/risk/:riskId/before
+   POST /api/v1/evidences/task/:taskId/before
 
    Multipart field:
 
@@ -603,7 +661,7 @@ export const getEvidenceById =
 
    Maximum:
 
-   10 Before images per Risk
+   10 Before images per Task
    ========================================================= */
 
 export const addBeforeEvidence =
@@ -634,9 +692,14 @@ export const addBeforeEvidence =
         );
       }
 
+      assertCanonicalTaskEvidencePaths(
+        imagePaths,
+        "before"
+      );
+
       const result =
         await addBeforeEvidenceService(
-          req.params.riskId,
+          req.params.taskId,
           imagePaths
         );
 
@@ -660,7 +723,7 @@ export const addBeforeEvidence =
 /* =========================================================
    ADD AFTER EVIDENCE
 
-   POST /api/v1/evidences/risk/:riskId/after
+   POST /api/v1/evidences/task/:taskId/after
 
    Multipart field:
 
@@ -668,7 +731,7 @@ export const addBeforeEvidence =
 
    Maximum:
 
-   10 After images per Risk
+   10 After images per Task
    ========================================================= */
 
 export const addAfterEvidence =
@@ -699,9 +762,14 @@ export const addAfterEvidence =
         );
       }
 
+      assertCanonicalTaskEvidencePaths(
+        imagePaths,
+        "after"
+      );
+
       const result =
         await addAfterEvidenceService(
-          req.params.riskId,
+          req.params.taskId,
           imagePaths
         );
 
@@ -725,9 +793,9 @@ export const addAfterEvidence =
 /* =========================================================
    DELETE SINGLE EVIDENCE
 
-   DELETE /api/v1/evidences/risk/:riskId/:evidenceId
+   DELETE /api/v1/evidences/task/:taskId/:evidenceId
 
-   Required Evidence remove hone par completed Risk service
+   Required Evidence remove hone par completed Task service
    ke through automatically In Progress mein revert ho sakta hai.
    ========================================================= */
 
@@ -740,7 +808,7 @@ export const deleteEvidence =
     try {
       const result =
         await deleteEvidenceService(
-          req.params.riskId,
+          req.params.taskId,
           req.params.evidenceId
         );
 
@@ -757,8 +825,8 @@ export const deleteEvidence =
           evidence:
             result.evidence,
 
-          risk:
-            result.risk,
+          task:
+            result.task,
 
           evidenceSummary:
             result.evidenceSummary,
@@ -776,7 +844,7 @@ export const deleteEvidence =
 /* =========================================================
    DELETE ALL BEFORE EVIDENCE
 
-   DELETE /api/v1/evidences/risk/:riskId/before
+   DELETE /api/v1/evidences/task/:taskId/before
    ========================================================= */
 
 export const deleteBeforeEvidences =
@@ -788,7 +856,7 @@ export const deleteBeforeEvidences =
     try {
       const result =
         await deleteEvidenceTypeService(
-          req.params.riskId,
+          req.params.taskId,
           "before"
         );
 
@@ -814,8 +882,8 @@ export const deleteBeforeEvidences =
           imageFilesDeleted:
             imageDeletion.deleted,
 
-          risk:
-            result.risk,
+          task:
+            result.task,
 
           evidenceSummary:
             result.evidenceSummary,
@@ -831,7 +899,7 @@ export const deleteBeforeEvidences =
 /* =========================================================
    DELETE ALL AFTER EVIDENCE
 
-   DELETE /api/v1/evidences/risk/:riskId/after
+   DELETE /api/v1/evidences/task/:taskId/after
    ========================================================= */
 
 export const deleteAfterEvidences =
@@ -843,7 +911,7 @@ export const deleteAfterEvidences =
     try {
       const result =
         await deleteEvidenceTypeService(
-          req.params.riskId,
+          req.params.taskId,
           "after"
         );
 
@@ -869,8 +937,8 @@ export const deleteAfterEvidences =
           imageFilesDeleted:
             imageDeletion.deleted,
 
-          risk:
-            result.risk,
+          task:
+            result.task,
 
           evidenceSummary:
             result.evidenceSummary,
@@ -882,3 +950,4 @@ export const deleteAfterEvidences =
       );
     }
   };
+

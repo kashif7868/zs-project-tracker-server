@@ -2,13 +2,19 @@ import express from "express";
 
 import {
   archiveProject,
+  completeProject,
   createProject,
   getProjectById,
   getProjects,
   getPublicProjectByAccessToken,
+  getPublicProjectTasks,
   permanentlyDeleteProject,
+  putProjectOnHold,
   regenerateClientAccessToken,
+  reopenProject,
+  resumeProject,
   revokeClientAccess,
+  startProject,
   updateProject,
 } from "./project.controller.js";
 
@@ -40,7 +46,6 @@ router.get(
       .status(200)
       .json({
         success: true,
-
         message:
           "Project routes are working successfully",
       });
@@ -50,23 +55,46 @@ router.get(
 /* =========================================================
    PUBLIC CLIENT TRACKER
 
-   Authentication required nahi hai.
+   IMPORTANT:
+   In public routes par Authorization header required nahi hai.
 
-   Is route ko /:projectId se pehle rakhna zaroori hai.
-
-   GET /api/v1/projects/public/access/:accessToken
+   In routes ko router.use(authMiddleware) aur /:projectId
+   routes se PEHLE rakhna zaroori hai.
    ========================================================= */
+
+/* ---------------------------------------------------------
+   PUBLIC PROJECT DETAILS
+
+   GET
+   /api/v1/projects/public/access/:accessToken
+   --------------------------------------------------------- */
 
 router.get(
   "/public/access/:accessToken",
-
   getPublicProjectByAccessToken
+);
+
+/* ---------------------------------------------------------
+   PUBLIC PROJECT TASK REGISTER
+
+   GET
+   /api/v1/projects/public/access/:accessToken/tasks
+
+   Client frontend isi endpoint se project ke client-visible
+   Tasks aur unki Evidence information load karega.
+
+   Login / Authorization header required nahi hai.
+   --------------------------------------------------------- */
+
+router.get(
+  "/public/access/:accessToken/tasks",
+  getPublicProjectTasks
 );
 
 /* =========================================================
    AUTHENTICATION
 
-   Neeche wali tamam routes protected hain.
+   Is point ke BAAD tamam routes protected hain.
    ========================================================= */
 
 router.use(
@@ -77,7 +105,6 @@ router.use(
    CREATE PROJECT
 
    Required permission:
-
    projects.create
 
    POST /api/v1/projects
@@ -85,13 +112,10 @@ router.use(
 
 router.post(
   "/",
-
   permissionMiddleware(
     "projects.create"
   ),
-
   validateCreateProject,
-
   createProject
 );
 
@@ -99,83 +123,121 @@ router.post(
    GET ALL PROJECTS
 
    Required permission:
-
    projects.view
-
-   Risk aur Evidence forms ke project dropdown ke liye bhi
-   yahi endpoint use ho sakta hai.
 
    GET /api/v1/projects
    ========================================================= */
 
 router.get(
   "/",
-
   permissionMiddleware(
     "projects.view"
   ),
-
   getProjects
 );
 
 /* =========================================================
-   GENERATE CLIENT ACCESS TOKEN
+   CLIENT ACCESS
 
-   Required permission:
-
-   projects.client_access
-
-   POST /api/v1/projects/:projectId/client-access
+   POST  /:projectId/client-access
+   PATCH /:projectId/client-access/revoke
    ========================================================= */
 
 router.post(
   "/:projectId/client-access",
-
   permissionMiddleware(
     "projects.client_access"
   ),
-
   regenerateClientAccessToken
 );
 
-/* =========================================================
-   REVOKE CLIENT ACCESS
-
-   Required permission:
-
-   projects.client_access
-
-   PATCH
-   /api/v1/projects/:projectId/client-access/revoke
-   ========================================================= */
-
 router.patch(
   "/:projectId/client-access/revoke",
-
   permissionMiddleware(
     "projects.client_access"
   ),
-
   revokeClientAccess
 );
 
 /* =========================================================
-   ARCHIVE PROJECT
+   PROJECT LIFECYCLE
 
-   Required permission:
+   Generic Edit Project lifecycle status control nahi karega.
 
-   projects.archive
+   Dedicated transition endpoints:
 
-   PATCH /api/v1/projects/:projectId/archive
+   draft      -> active
+   active     -> on_hold
+   on_hold    -> active
+   active /
+   on_hold    -> completed
+   completed  -> active
+   completed  -> archived
    ========================================================= */
+
+/* START PROJECT
+   draft -> active */
+
+router.patch(
+  "/:projectId/start",
+  permissionMiddleware(
+    "projects.update"
+  ),
+  startProject
+);
+
+/* PUT ON HOLD
+   active -> on_hold */
+
+router.patch(
+  "/:projectId/hold",
+  permissionMiddleware(
+    "projects.update"
+  ),
+  putProjectOnHold
+);
+
+/* RESUME PROJECT
+   on_hold -> active */
+
+router.patch(
+  "/:projectId/resume",
+  permissionMiddleware(
+    "projects.update"
+  ),
+  resumeProject
+);
+
+/* MARK COMPLETED
+   active / on_hold -> completed */
+
+router.patch(
+  "/:projectId/complete",
+  permissionMiddleware(
+    "projects.update"
+  ),
+  completeProject
+);
+
+/* REOPEN PROJECT
+   completed -> active */
+
+router.patch(
+  "/:projectId/reopen",
+  permissionMiddleware(
+    "projects.update"
+  ),
+  reopenProject
+);
+
+/* ARCHIVE PROJECT
+   completed -> archived */
 
 router.patch(
   "/:projectId/archive",
-
   permissionMiddleware(
     "projects.archive"
   ),
-
   archiveProject
 );
 
@@ -184,20 +246,14 @@ router.patch(
 
    Super Admin only.
 
-   Yeh irreversible operation hai, is liye dynamic custom
-   role permission ke bajaye direct system-role protection
-   preserve ki gayi hai.
-
    DELETE /api/v1/projects/:projectId/permanent
    ========================================================= */
 
 router.delete(
   "/:projectId/permanent",
-
   roleMiddleware(
     "super_admin"
   ),
-
   permanentlyDeleteProject
 );
 
@@ -205,7 +261,6 @@ router.delete(
    GET SINGLE PROJECT
 
    Required permission:
-
    projects.view
 
    GET /api/v1/projects/:projectId
@@ -213,33 +268,30 @@ router.delete(
 
 router.get(
   "/:projectId",
-
   permissionMiddleware(
     "projects.view"
   ),
-
   getProjectById
 );
 
 /* =========================================================
-   UPDATE PROJECT
+   UPDATE PROJECT DETAILS
 
    Required permission:
-
    projects.update
 
    PATCH /api/v1/projects/:projectId
+
+   NOTE:
+   Status/lifecycle fields service layer protect karti hai.
    ========================================================= */
 
 router.patch(
   "/:projectId",
-
   permissionMiddleware(
     "projects.update"
   ),
-
   validateUpdateProject,
-
   updateProject
 );
 

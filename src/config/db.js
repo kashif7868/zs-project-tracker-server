@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import chalk from "chalk";
 
-import Risk from "../models/risks/risk.model.js";
+import Risk from "../models/task_register/task.model.js";
 
 /* =========================================================
    DATABASE CONNECTION

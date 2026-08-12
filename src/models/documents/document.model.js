@@ -10,7 +10,7 @@ const { Schema } = mongoose;
    ========================================================= */
 
 export const DOCUMENT_LAYOUTS = [
-  "risk_register",
+  "task_register",
   "detailed_evidence",
   "summary",
 ];
@@ -36,10 +36,10 @@ export const DOCUMENT_STATUSES = [
 ];
 
 /* =========================================================
-   RISK STATUS FILTERS
+   TASK STATUS FILTERS
    ========================================================= */
 
-export const DOCUMENT_RISK_STATUS_FILTERS = [
+export const DOCUMENT_TASK_STATUS_FILTERS = [
   "all",
   "in_progress",
   "complete",
@@ -63,7 +63,7 @@ export const DOCUMENT_MIME_TYPES = {
    REPORT FILTERS
 
    Yeh record karega ke report generate karte waqt kaun se
-   Risk records aur Evidence options select kiye gaye thay.
+   Task records aur Evidence options select kiye gaye thay.
    ========================================================= */
 
 const documentFiltersSchema =
@@ -74,7 +74,7 @@ const documentFiltersSchema =
 
         enum: {
           values:
-            DOCUMENT_RISK_STATUS_FILTERS,
+            DOCUMENT_TASK_STATUS_FILTERS,
 
           message:
             "Status filter must be all, in_progress or complete.",
@@ -84,12 +84,6 @@ const documentFiltersSchema =
       },
 
       includeProjectDetails: {
-        type: Boolean,
-
-        default: true,
-      },
-
-      includeRiskRegisterId: {
         type: Boolean,
 
         default: true,
@@ -126,19 +120,19 @@ const documentFiltersSchema =
       },
 
       /*
-        Specific Risks select kiye jayen to unke IDs save honge.
+        Specific Tasks select kiye jayen to unke IDs save honge.
 
         Empty array ka matlab:
-        Project ke tamam matching Risks export honge.
+        Project ke tamam matching Tasks export honge.
       */
 
-      selectedRiskIds: {
+      selectedTaskIds: {
         type: [
           {
             type:
               Schema.Types.ObjectId,
 
-            ref: "Risk",
+            ref: "Task",
           },
         ],
 
@@ -197,34 +191,34 @@ const documentFiltersSchema =
 const documentSummarySchema =
   new Schema(
     {
-      totalRisks: {
+      totalTasks: {
         type: Number,
 
         min: [
           0,
-          "Total Risks cannot be negative.",
+          "Total Tasks cannot be negative.",
         ],
 
         default: 0,
       },
 
-      inProgressRisks: {
+      inProgressTasks: {
         type: Number,
 
         min: [
           0,
-          "In Progress Risks cannot be negative.",
+          "In Progress Tasks cannot be negative.",
         ],
 
         default: 0,
       },
 
-      completeRisks: {
+      completeTasks: {
         type: Number,
 
         min: [
           0,
-          "Complete Risks cannot be negative.",
+          "Complete Tasks cannot be negative.",
         ],
 
         default: 0,
@@ -387,7 +381,7 @@ const documentSchema =
 
          Electrical Safety Working Report
          August Progress Report
-         Final Site Risk Register
+         Final Site Task Register
          Client Submission Report
          ===================================================== */
 
@@ -448,11 +442,11 @@ const documentSchema =
             DOCUMENT_LAYOUTS,
 
           message:
-            "Report layout must be risk_register, detailed_evidence or summary.",
+            "Report layout must be task_register, detailed_evidence or summary.",
         },
 
         default:
-          "risk_register",
+          "task_register",
 
         index: true,
       },
@@ -515,21 +509,21 @@ const documentSchema =
       },
 
       /* =====================================================
-         EXPORTED RISK REFERENCES
+         EXPORTED TASK REFERENCES
 
-         Risk data duplicate save nahi hoga.
+         Task data duplicate save nahi hoga.
 
-         Sirf exported Risk IDs history/reference ke liye
+         Sirf exported Task IDs history/reference ke liye
          store hongi.
          ===================================================== */
 
-      exportedRiskIds: {
+      exportedTaskIds: {
         type: [
           {
             type:
               Schema.Types.ObjectId,
 
-            ref: "Risk",
+            ref: "Task",
           },
         ],
 
@@ -873,20 +867,20 @@ documentSchema.pre(
     }
 
     /*
-      Duplicate Risk references remove hongi.
+      Duplicate Task references remove hongi.
     */
 
     if (
       Array.isArray(
-        this.exportedRiskIds
+        this.exportedTaskIds
       )
     ) {
-      this.exportedRiskIds = [
+      this.exportedTaskIds = [
         ...new Map(
-          this.exportedRiskIds.map(
-            (riskId) => [
-              riskId.toString(),
-              riskId,
+          this.exportedTaskIds.map(
+            (taskId) => [
+              taskId.toString(),
+              taskId,
             ]
           )
         ).values(),
@@ -896,15 +890,15 @@ documentSchema.pre(
     if (
       Array.isArray(
         this.filters
-          ?.selectedRiskIds
+          ?.selectedTaskIds
       )
     ) {
-      this.filters.selectedRiskIds = [
+      this.filters.selectedTaskIds = [
         ...new Map(
-          this.filters.selectedRiskIds.map(
-            (riskId) => [
-              riskId.toString(),
-              riskId,
+          this.filters.selectedTaskIds.map(
+            (taskId) => [
+              taskId.toString(),
+              taskId,
             ]
           )
         ).values(),
@@ -969,26 +963,26 @@ documentSchema.pre(
       beforeCount +
       afterCount;
 
-    const totalRisks =
+    const totalTasks =
       Number(
         this.summary
-          .totalRisks ||
+          .totalTasks ||
           0
       );
 
-    const completeRisks =
+    const completeTasks =
       Number(
         this.summary
-          .completeRisks ||
+          .completeTasks ||
           0
       );
 
     this.summary.completionPercentage =
-      totalRisks > 0
+      totalTasks > 0
         ? Number(
             (
-              (completeRisks /
-                totalRisks) *
+              (completeTasks /
+                totalTasks) *
               100
             ).toFixed(2)
           )

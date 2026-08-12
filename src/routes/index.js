@@ -4,7 +4,7 @@ import authRoutes from "../modules/auth/auth.routes.js";
 import userRoutes from "../modules/users/user.routes.js";
 import roleRoutes from "../modules/roles/role.routes.js";
 import projectRoutes from "../modules/projects/project.routes.js";
-import riskRoutes from "../modules/risks/risk.routes.js";
+import taskRoutes from "../modules/task_register/task.routes.js";
 import evidenceRoutes from "../modules/evidences/evidence.routes.js";
 import documentRoutes from "../modules/documents/document.routes.js";
 
@@ -33,14 +33,6 @@ router.use(
 /* =========================================================
    ROLE ROUTES
    /api/v1/roles
-
-   Dynamic roles:
-
-   Accountant
-   Sales
-   Staff
-   Electrical Engineer
-   Management Team
    ========================================================= */
 
 router.use(
@@ -59,24 +51,50 @@ router.use(
 );
 
 /* =========================================================
-   RISK REGISTER ROUTES
+   TASK REGISTER ROUTES
+
+   Canonical API:
+   /api/v1/tasks
+
+   New backend/dashboard/frontend should use this route.
+   ========================================================= */
+
+router.use(
+  "/tasks",
+  taskRoutes
+);
+
+/* =========================================================
+   TEMPORARY LEGACY RISK ROUTE
+
    /api/v1/risks
+
+   Migration ke duran existing dashboard/frontend ko break
+   hone se bachane ke liye temporarily same Task router mount
+   kiya gaya hai.
+
+   Dashboard + public frontend fully /tasks par migrate hone
+   ke baad is block ko remove kar dena.
    ========================================================= */
 
 router.use(
   "/risks",
-  riskRoutes
+  taskRoutes
 );
 
 /* =========================================================
-   RISK EVIDENCE ROUTES
+   EVIDENCE ROUTES
    /api/v1/evidences
 
-   Before Evidence:
-   POST /api/v1/evidences/risk/:riskId/before
+   NOTE:
+   Evidence module abhi legacy riskId routes use kar raha hai.
 
-   After Evidence:
-   POST /api/v1/evidences/risk/:riskId/after
+   Next migration step mein:
+   /risk/:riskId
+   ->
+   /task/:taskId
+
+   convert karenge.
    ========================================================= */
 
 router.use(
@@ -87,21 +105,6 @@ router.use(
 /* =========================================================
    DOCUMENT AND REPORT ROUTES
    /api/v1/documents
-
-   Generate report:
-   POST /api/v1/documents/generate
-
-   Report history:
-   GET /api/v1/documents
-
-   Project report history:
-   GET /api/v1/documents/project/:projectId
-
-   Download report:
-   GET /api/v1/documents/:documentId/download
-
-   Delete report:
-   DELETE /api/v1/documents/:documentId
    ========================================================= */
 
 router.use(
