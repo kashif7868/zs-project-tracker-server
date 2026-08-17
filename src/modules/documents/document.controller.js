@@ -27,6 +27,68 @@ const sendSuccessResponse = (
 };
 
 /* =========================================================
+   DOWNLOAD FILE NAME HELPER
+
+   Service already provides the client-facing file name.
+
+   This helper only adds a safe fallback so downloads never
+   fall back to an undefined or generic Express name.
+   ========================================================= */
+
+const getDownloadFileName = (
+  document
+) => {
+  const fileName =
+    typeof document?.fileName ===
+      "string"
+      ? document.fileName.trim()
+      : "";
+
+  if (fileName) {
+    return fileName;
+  }
+
+  const format =
+    typeof document?.format ===
+      "string"
+      ? document.format
+          .trim()
+          .toLowerCase()
+      : "pdf";
+
+  const title =
+    typeof document?.title ===
+      "string"
+      ? document.title.trim()
+      : typeof document?.projectTitle ===
+          "string"
+        ? document.projectTitle.trim()
+        : typeof document?.projectCode ===
+            "string"
+          ? document.projectCode.trim()
+          : "project-report";
+
+  const safeTitle =
+    title
+      .toLowerCase()
+      .replace(
+        /[^a-z0-9]+/g,
+        "-"
+      )
+      .replace(
+        /^-+|-+$/g,
+        ""
+      )
+      .slice(
+        0,
+        100
+      ) ||
+    "project-report";
+
+  return `${safeTitle}.${format}`;
+};
+
+/* =========================================================
    GENERATE DOCUMENT
 
    POST /api/v1/documents/generate
@@ -208,6 +270,10 @@ export const getDocumentById =
    GET /api/v1/documents/:documentId/download
 
    Only completed documents download ho sakte hain.
+
+   The public/client-facing download name comes from the
+   generated document record, while the physical stored file
+   may have a timestamp/hash to prevent overwriting history.
    ========================================================= */
 
 export const downloadDocument =
@@ -225,6 +291,11 @@ export const downloadDocument =
           req.params.documentId
         );
 
+      const downloadFileName =
+        getDownloadFileName(
+          document
+        );
+
       if (document.mimeType) {
         res.setHeader(
           "Content-Type",
@@ -232,9 +303,35 @@ export const downloadDocument =
         );
       }
 
+      /*
+        Avoid browser/proxy caching an old generated report
+        under a previous file name.
+      */
+
+      res.setHeader(
+        "Cache-Control",
+        "private, no-store, no-cache, must-revalidate"
+      );
+
+      res.setHeader(
+        "Pragma",
+        "no-cache"
+      );
+
+      res.setHeader(
+        "Expires",
+        "0"
+      );
+
       return res.download(
         absoluteFilePath,
-        document.fileName,
+        downloadFileName,
+        {
+          headers: {
+            "X-Content-Type-Options":
+              "nosniff",
+          },
+        },
         (error) => {
           if (!error) {
             return;

@@ -841,10 +841,20 @@ const buildExportData = async ({
   const evidenceRecords =
     taskIds.length > 0
       ? await Evidence.find({
-          riskId: {
-            $in:
-              taskIds,
-          },
+          $or: [
+            {
+              taskId: {
+                $in:
+                  taskIds,
+              },
+            },
+            {
+              riskId: {
+                $in:
+                  taskIds,
+              },
+            },
+          ],
         })
           .sort({
             createdAt: 1,
@@ -1029,6 +1039,15 @@ const createGeneratedFileName = (
   return `${createSafeFileName(
     title
   )}-${timestamp}-${uniqueValue}.${format}`;
+};
+
+const createDownloadFileName = (
+  title,
+  format
+) => {
+  return `${createSafeFileName(
+    title
+  )}.${format}`;
 };
 
 /* =========================================================
@@ -1471,8 +1490,6 @@ const generatePdfDocument =
       new Map();
 
     if (
-      layout ===
-        "detailed_evidence" &&
       filters.includeEvidenceImages
     ) {
       for (const row of rows) {
@@ -1596,15 +1613,57 @@ const generatePdfDocument =
         };
 
         pdf
+          .roundedRect(
+            pdf.page.margins.left,
+            pdf.page.margins.top,
+            pdf.page.width -
+              pdf.page.margins.left -
+              pdf.page.margins.right,
+            54,
+            8
+          )
+          .fill(
+            "#0F766E"
+          );
+
+        pdf
           .font(
             "Helvetica-Bold"
           )
-          .fontSize(20)
+          .fontSize(18)
+          .fillColor(
+            "#FFFFFF"
+          )
+          .text(
+            title,
+            pdf.page.margins.left + 16,
+            pdf.page.margins.top + 12,
+            {
+              width:
+                pdf.page.width -
+                pdf.page.margins.left -
+                pdf.page.margins.right -
+                32,
+
+              align:
+                "center",
+            }
+          );
+
+        pdf.y =
+          pdf.page.margins.top +
+          68;
+
+        pdf
+          .font(
+            "Helvetica-Bold"
+          )
+          .fontSize(11)
           .fillColor(
             "#111827"
           )
           .text(
-            title,
+            projectTitle,
             {
               align:
                 "center",
@@ -1612,16 +1671,16 @@ const generatePdfDocument =
           );
 
         pdf
-          .moveDown(0.4)
+          .moveDown(0.15)
           .font(
             "Helvetica"
           )
-          .fontSize(10)
+          .fontSize(9)
           .fillColor(
             "#4B5563"
           )
           .text(
-            `${projectTitle} | ${projectCode}`,
+            `Project Reference: ${projectCode}`,
             {
               align:
                 "center",
@@ -1892,8 +1951,6 @@ const generatePdfDocument =
               );
 
             if (
-              layout !==
-                "detailed_evidence" ||
               !filters.includeEvidenceImages
             ) {
               return;
@@ -1978,33 +2035,71 @@ const generatePdfDocument =
 
                     if (preparedImage) {
                       try {
+                        const imageWidth =
+                          Math.min(
+                            360,
+                            pdf.page.width -
+                              pdf.page.margins.left -
+                              pdf.page.margins.right
+                          );
+
+                        const imageHeight =
+                          190;
+
+                        const imageX =
+                          pdf.page.margins.left +
+                          (
+                            pdf.page.width -
+                            pdf.page.margins.left -
+                            pdf.page.margins.right -
+                            imageWidth
+                          ) /
+                          2;
+
                         pdf.image(
                           preparedImage.buffer,
+                          imageX,
+                          pdf.y + 4,
                           {
                             fit: [
-                              420,
-                              210,
+                              imageWidth,
+                              imageHeight,
                             ],
 
                             align:
                               "center",
+
+                            valign:
+                              "center",
                           }
                         );
+
+                        pdf.y +=
+                          imageHeight +
+                          12;
                       } catch {
-                        pdf.text(
-                          evidence.imagePath ||
-                            "Image unavailable"
-                        );
+                        pdf
+                          .fillColor(
+                            "#9CA3AF"
+                          )
+                          .fontSize(8)
+                          .text(
+                            "Evidence image unavailable."
+                          );
                       }
                     } else {
-                      pdf.text(
-                        evidence.imagePath ||
-                          "Image unavailable"
-                      );
+                      pdf
+                        .fillColor(
+                          "#9CA3AF"
+                        )
+                        .fontSize(8)
+                        .text(
+                          "Evidence image unavailable."
+                        );
                     }
 
                     pdf.moveDown(
-                      0.5
+                      0.35
                     );
                   }
                 );
@@ -2092,9 +2187,11 @@ const generateDocxDocument =
     const {
       AlignmentType,
       Document,
+      Footer,
       HeadingLevel,
       ImageRun,
       Packer,
+      PageNumber,
       PageOrientation,
       Paragraph,
       Table,
@@ -2405,8 +2502,6 @@ const generateDocxDocument =
     );
 
     if (
-      layout ===
-        "detailed_evidence" &&
       filters.includeEvidenceImages
     ) {
       for (const row of rows) {
@@ -2534,8 +2629,8 @@ const generateDocxDocument =
                         image.type,
 
                       transformation: {
-                        width: 420,
-                        height: 260,
+                        width: 360,
+                        height: 225,
                       },
                     }),
                   ],
@@ -2568,7 +2663,45 @@ const generateDocxDocument =
                       ? PageOrientation.LANDSCAPE
                       : PageOrientation.PORTRAIT,
                 },
+
+                margin: {
+                  top: 720,
+                  right: 720,
+                  bottom: 720,
+                  left: 720,
+                },
               },
+            },
+
+            footers: {
+              default:
+                new Footer({
+                  children: [
+                    new Paragraph({
+                      alignment:
+                        AlignmentType.CENTER,
+
+                      children: [
+                        new TextRun({
+                          text:
+                            `${projectTitle} | ${projectCode} | Page `,
+                          size: 18,
+                          color:
+                            "6B7280",
+                        }),
+
+                        new TextRun({
+                          children: [
+                            PageNumber.CURRENT,
+                          ],
+                          size: 18,
+                          color:
+                            "6B7280",
+                        }),
+                      ],
+                    }),
+                  ],
+                }),
             },
 
             children,
@@ -3561,8 +3694,14 @@ export const generateDocumentService =
           projectId
         );
 
-      const fileName =
+      const storageFileName =
         createGeneratedFileName(
+          title,
+          format
+        );
+
+      const downloadFileName =
+        createDownloadFileName(
           title,
           format
         );
@@ -3570,7 +3709,7 @@ export const generateDocumentService =
       outputPath =
         path.resolve(
           projectDirectory,
-          fileName
+          storageFileName
         );
 
       await generateDocumentFile({
@@ -3609,12 +3748,12 @@ export const generateDocumentService =
         exportData.summary;
 
       documentRecord.fileName =
-        fileName;
+        downloadFileName;
 
       documentRecord.filePath =
         createPublicFilePath(
           projectId,
-          fileName
+          storageFileName
         );
 
       documentRecord.mimeType =
